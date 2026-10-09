@@ -48,7 +48,7 @@ class Controller:
     def __init__(self,data):
         self.data=data
         self.events=queue.Queue()
-        self.client=GuideClient(data / "攻略缓存")
+        self.client=GuideClient(data / "cache")
         # The public source distribution contains no copied game/wiki database.
         # The catalog is populated from the read-only public endpoint after startup.
         self.catalog=Catalog(self.client.cached_config(),{})

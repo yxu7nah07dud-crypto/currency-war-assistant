@@ -11,7 +11,7 @@ a=Analysis([str(root/'main.py')],pathex=[str(root)],
     excludes=['pytest','IPython','matplotlib','paddle','torch','tensorflow'],
     noarchive=False)
 pyz=PYZ(a.pure)
-exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name='货币战争助手',debug=False,
+exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name='CurrencyWarAssistant',debug=False,
     bootloader_ignore_signals=False,strip=False,upx=False,console=False,
     disable_windowed_traceback=False)
-coll=COLLECT(exe,a.binaries,a.datas,strip=False,upx=False,name='货币战争实时助手')
+coll=COLLECT(exe,a.binaries,a.datas,strip=False,upx=False,name='CurrencyWarAssistant')

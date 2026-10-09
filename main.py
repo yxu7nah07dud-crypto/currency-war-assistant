@@ -15,7 +15,7 @@ def main():
         pass
     from currency_war_assistant.paths import data_dir
     data=data_dir()
-    logging.basicConfig(filename=data / "助手日志.txt",level=logging.WARNING,encoding="utf8",format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(filename=data / "assistant.log",level=logging.WARNING,encoding="utf8",format="%(asctime)s %(levelname)s %(message)s")
     import tkinter as tk
     from currency_war_assistant.ui import Assistant
     root=tk.Tk()
@@ -29,7 +29,7 @@ def main():
             app.start()
         root.after(1000,auto)
     def report():
-        app.controller.export_report(data / "最近观察.json")
+        app.controller.export_report(data / "last_observation.json")
         root.after(5000,report)
     root.after(5000,report)
     root.mainloop()
@@ -41,9 +41,9 @@ if __name__ == "__main__":
     except Exception:
         from currency_war_assistant.paths import data_dir
         import traceback
-        (data_dir() / "启动错误.txt").write_text(traceback.format_exc(),encoding="utf8")
+        (data_dir() / "startup_error.txt").write_text(traceback.format_exc(),encoding="utf8")
         try:
-            ctypes.windll.user32.MessageBoxW(None,"助手启动失败。请查看“助手数据/启动错误.txt”。","货币战争助手",0x10)
+            ctypes.windll.user32.MessageBoxW(None,"助手启动失败。请查看 CurrencyWarAssistantData/startup_error.txt。","Currency War Assistant",0x10)
         except Exception:
             pass
         raise

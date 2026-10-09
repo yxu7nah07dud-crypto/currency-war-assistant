@@ -7,7 +7,7 @@ An unofficial Windows 10/11 desktop companion for the Currency War mode in *Honk
 ## Use
 
 1. Start the game and enter Currency War.
-2. Run `货币战争助手.exe`, choose the game window and click **Start observing**.
+2. Run `CurrencyWarAssistant.exe`, choose the game window and click **Start observing**.
 3. If you copied a guide code, paste it into **Guide code for this game** and click **Apply and lock**. The locked guide stays fixed until **New game**.
 4. Check **What to do now** for purchases, equipment, economy and the next stage.
 5. Use **Recognized** to correct uncertain roles, stars, equipment or investments.
@@ -16,7 +16,7 @@ The interface supports Chinese, English and Japanese. Settings are saved when th
 
 ## Public-source policy
 
-The public source package intentionally contains no game artwork, wiki database, guide cache or copied guide text. The first refresh obtains current public configuration and guide metadata into the user's local `助手数据/攻略缓存` directory. Do not commit that directory.
+The public source package intentionally contains no game artwork, wiki database, guide cache or copied guide text. The first refresh obtains current public configuration and guide metadata into the user's local `CurrencyWarAssistantData/cache` directory. Do not commit that directory.
 
 This is an unofficial fan tool and is not affiliated with miHoYo, HoYoverse, HoYoLAB or *Honkai: Star Rail*. Game names, artwork, data and guide content belong to their respective rights holders. See [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE).
 

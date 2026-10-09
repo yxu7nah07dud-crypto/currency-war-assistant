@@ -11,9 +11,9 @@ from currency_war_assistant.paths import read_json
 from currency_war_assistant.vision import Recognizer
 
 root=Path(__file__).resolve().parent.parent
-cache=root/'助手数据'/'攻略缓存'
+cache=root/'CurrencyWarAssistantData'/'cache'
 catalog=Catalog(read_json(cache/'config.json',{}),{})
-recognizer=Recognizer(catalog,root/'助手数据'/'识别校验')
+recognizer=Recognizer(catalog,root/'CurrencyWarAssistantData'/'recognition-validation')
 image=cv2.imread(str(root/sys.argv[1]))
 if image is None:raise ValueError('诊断图片不存在')
 if len(sys.argv)>2:

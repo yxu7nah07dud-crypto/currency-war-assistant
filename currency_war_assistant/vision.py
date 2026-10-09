@@ -340,7 +340,7 @@ class Recognizer:
         crop=image[top:bottom,left:right]
         if crop.size<100 or crop.std()<5:
             raise ValueError("请框选完整的头像或装备图标")
-        target=self.data / "自定义图标" / f"{kind}-{identifier}-{int(time.time())}.png"
+        target=self.data / "custom_icons" / f"{kind}-{identifier}-{int(time.time())}.png"
         target.parent.mkdir(parents=True,exist_ok=True)
         cv2.imencode(".png",crop)[1].tofile(str(target))
         entries=read_json(self.data / "custom_icons.json",[])
