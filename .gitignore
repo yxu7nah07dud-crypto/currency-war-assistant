@@ -1,0 +1,15 @@
+助手数据/
+build/
+dist/
+work/
+outputs/
+.assistant-venv/
+__pycache__/
+*.pyc
+tests/_cache/
+assets/*.json
+assets/icons/
+*.png
+*.jpg
+*.jpeg
+*.webp
