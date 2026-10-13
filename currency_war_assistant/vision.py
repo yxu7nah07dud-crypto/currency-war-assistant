@@ -30,7 +30,6 @@ def region_contains(box, rect, shape):
 
 class IconMatcher:
     def __init__(self, data):
-        self.sift = cv2.SIFT_create(nfeatures=120)
         self.templates = []
         self.equipment_templates=[]
         # Official role/equipment art is deliberately not bundled in the public
@@ -51,35 +50,36 @@ class IconMatcher:
         scale=min(1,1280/width)
         small=cv2.resize(image,None,fx=scale,fy=scale) if scale<1 else image
         gray=cv2.cvtColor(small,cv2.COLOR_BGR2GRAY)
-        kp,desc=cv2.SIFT_create(nfeatures=2400).detectAndCompute(gray,None)
         found=[]
-        if desc is None:
-            return found
-        for items,(th,tw),tpoints,tdesc in self.templates:
-            if kinds and items[0]["kind"] not in kinds:
-                continue
-            pairs=self.bf.knnMatch(tdesc,desc,k=2)
-            good=[a for a,b in pairs if a.distance<.70*b.distance and a.distance<250]
-            if len(good)<5:
-                continue
-            src=np.float32([tpoints[m.queryIdx].pt for m in good])
-            dst=np.float32([kp[m.trainIdx].pt for m in good])
-            matrix,mask=cv2.findHomography(src,dst,cv2.RANSAC,3)
-            if matrix is None or mask is None or mask.sum()<5:
-                continue
-            corners=np.float32([[0,0],[tw,0],[tw,th],[0,th]]).reshape(-1,1,2)
-            pts=cv2.perspectiveTransform(corners,matrix).reshape(-1,2)/scale
-            left,top=pts.min(axis=0); right,bottom=pts.max(axis=0)
-            bw,bh=right-left,bottom-top
-            polygon_area=abs(cv2.contourArea(pts))
-            if min(bw,bh)<18 or max(bw,bh)>max(180,width*.16) or min(bw,bh)/max(bw,bh)<.45 or polygon_area < bw*bh*.55:
-                continue
-            if left < -8 or top < -8 or right>width+8 or bottom>height+8:
-                continue
-            confidence=min(.98,.72+.025*int(mask.sum()))
-            found.append({"kind":items[0]["kind"],"ids":[v["id"] for v in items],"box":(int(left),int(top),int(right),int(bottom)),"confidence":confidence,"source":"官方图标"})
+        applicable=[t for t in self.templates if not kinds or t[0][0]["kind"] in kinds]
+        if applicable:
+            kp,desc=cv2.SIFT_create(nfeatures=2400).detectAndCompute(gray,None)
+            for items,(th,tw),tpoints,tdesc in (applicable if desc is not None else []):
+                if kinds and items[0]["kind"] not in kinds:
+                    continue
+                pairs=self.bf.knnMatch(tdesc,desc,k=2)
+                good=[a for a,b in pairs if a.distance<.70*b.distance and a.distance<250]
+                if len(good)<5:
+                    continue
+                src=np.float32([tpoints[m.queryIdx].pt for m in good])
+                dst=np.float32([kp[m.trainIdx].pt for m in good])
+                matrix,mask=cv2.findHomography(src,dst,cv2.RANSAC,3)
+                if matrix is None or mask is None or mask.sum()<5:
+                    continue
+                corners=np.float32([[0,0],[tw,0],[tw,th],[0,th]]).reshape(-1,1,2)
+                pts=cv2.perspectiveTransform(corners,matrix).reshape(-1,2)/scale
+                left,top=pts.min(axis=0); right,bottom=pts.max(axis=0)
+                bw,bh=right-left,bottom-top
+                polygon_area=abs(cv2.contourArea(pts))
+                if min(bw,bh)<18 or max(bw,bh)>max(180,width*.16) or min(bw,bh)/max(bw,bh)<.45 or polygon_area < bw*bh*.55:
+                    continue
+                if left < -8 or top < -8 or right>width+8 or bottom>height+8:
+                    continue
+                confidence=min(.98,.72+.025*int(mask.sum()))
+                found.append({"kind":items[0]["kind"],"ids":[v["id"] for v in items],"box":(int(left),int(top),int(right),int(bottom)),"confidence":confidence,"source":"官方图标"})
         # User-confirmed crops cover skins and tiny HUD icons that differ from official art.
         for entry,reference in self.custom:
+            if kinds and entry["kind"] not in kinds:continue
             rh,rw=reference.shape[:2]
             for factor in (.75,1,1.25):
                 template=cv2.resize(reference,(max(8,int(rw*factor*scale)),max(8,int(rh*factor*scale))))
@@ -93,8 +93,13 @@ class IconMatcher:
                     break
         return found
 
+    def has_templates(self,kinds=None):
+        return any(not kinds or t[0][0]['kind'] in kinds for t in self.templates) or any(
+            not kinds or e['kind'] in kinds for e,_ in self.custom)
+
     def inventory(self,image):
         """Match each separate inventory cell, retaining duplicate material copies."""
+        if not self.equipment_templates:return []
         h,w=image.shape[:2]
         factor=w/1920
         result=[]
@@ -202,7 +207,13 @@ class Recognizer:
 
     def parse_rows(self,rows,shape):
         joined=" ".join(r["text"] for r in rows)
-        if any(word in joined for word in ("我方行动中","敌方行动中","自动战斗")) or ("伤害" in joined and "刷新" not in joined and "开始战斗" not in joined):
+        # Investment descriptions can contain damage, refresh and upgrade terms.
+        # Use the actual page heading before interpreting those words as scenes.
+        investment_heading=any(normalize(r["text"]) in ("投资策略","投资环境","选择投资")
+                               and (r["box"][1]+r["box"][3])/2/shape[0]<.20 for r in rows)
+        if investment_heading:
+            scene="投资选择"
+        elif any(word in joined for word in ("我方行动中","敌方行动中","自动战斗")) or ("伤害" in joined and "刷新" not in joined and "开始战斗" not in joined):
             scene="战斗"
         elif any(word in joined for word in ("投资策略","投资环境","选择投资")) and "刷新商店" not in joined:
             scene="投资选择"
@@ -211,6 +222,9 @@ class Recognizer:
         else:
             scene="其他"
         state=GameState(scene=scene,at=time.time())
+        if scene=="投资选择":
+            headings={normalize(r["text"]) for r in rows if (r["box"][1]+r["box"][3])/2/shape[0]<.20}
+            state.investment_kind="环境" if "投资环境" in headings else "策略" if "投资策略" in headings else ""
         h,w=shape[:2]
         for row in rows:
             text=row["text"]; box=row["box"]; x,y=(box[0]+box[2])/2/w,(box[1]+box[3])/2/h
@@ -263,18 +277,27 @@ class Recognizer:
                 continue
             token=normalize(row["text"])
             for kind in ("角色","装备","策略","环境"):
+                if state.scene=="投资选择":
+                    # Only card titles are choices. Names inside effects are not
+                    # owned roles, equipment, or additional selectable cards.
+                    if kind not in ("策略","环境") or not .22<(row["box"][1]+row["box"][3])/2/image.shape[0]<.41:
+                        continue
+                    if state.investment_kind and kind!=state.investment_kind:
+                        continue
                 matching=[identifier for identifier,item in self.catalog.pool(kind).items() if normalize(item.get("name",""))==token and len(token)>=2]
                 if matching:
                     entities.append({"kind":kind,"ids":matching,"box":row["box"],"confidence":row["confidence"],"source":"文字"})
                     break
-        if state.scene in ("准备","战斗"):
+        if state.scene in ("准备","战斗") and self.matcher.has_templates():
             entities.extend(self.matcher.find(image))
         if state.scene=="准备" and any("后台区域" in r["text"] for r in rows):
             h,w=image.shape[:2]
             for zone in ("前台","后台","备战","库存"):
+                kinds={"装备"} if zone=="库存" else {"角色"}
+                if not self.matcher.has_templates(kinds):continue
                 a,b,c,d=self.regions[zone] if zone in self.calibrated else DEFAULT_REGIONS[zone]
                 x,y,x2,y2=int(a*w),int(b*h),int(c*w),int(d*h)
-                for found in self.matcher.find(image[y:y2,x:x2],kinds={"装备"} if zone=="库存" else {"角色"}):
+                for found in self.matcher.find(image[y:y2,x:x2],kinds=kinds):
                     l,t,r,bt=found["box"]
                     found["box"]=(l+x,t+y,r+x,bt+y)
                     found["zone_hint"]=zone
@@ -293,7 +316,11 @@ class Recognizer:
                 state.unresolved.append({**entity,"zone":zone,"reason":"同一头像对应多个玩法形态，请确认费用或名称"})
                 continue
             identifier=entity["ids"][0]
-            item=Seen(identifier,self.catalog.name(identifier),kind,zone,confidence=entity["confidence"],source=entity["source"],box=box)
+            item=Seen(identifier,self.catalog.name(identifier,kind),kind,zone,confidence=entity["confidence"],source=entity["source"],box=box)
+            if state.scene=="投资选择" and kind in ("策略","环境"):
+                item.slot=min(2,max(0,int((box[0]+box[2])/2/image.shape[1]*3)))
+                state.investment_choices.append(item)
+                continue
             if kind=="角色" and zone in ("前台","后台","备战") and state.scene=="准备":
                 item.star=visible_stars(image,box)
             if kind=="装备":item.slot=entity.get("slot",-1)
@@ -321,6 +348,14 @@ class Recognizer:
             if previous is None or item.confidence>previous.confidence:
                 by_slot[item.slot]=item
         state.shop=[by_slot[s] for s in sorted(by_slot)]
+        choice_slots={}
+        for item in state.investment_choices:
+            previous=choice_slots.get(item.slot)
+            if previous is None or item.confidence>previous.confidence:
+                choice_slots[item.slot]=item
+        state.investment_choices=[choice_slots[s] for s in sorted(choice_slots)]
+        if state.scene=="投资选择" and len(state.investment_choices)<3:
+            state.warning="投资卡片未识别完整；请在“已识别”中纠正待选项，确认后再选择。"
         inventory_slots=[e for e in state.equipment if e.source=="库存图标"]
         if inventory_slots:
             state.equipment=inventory_slots+[e for e in state.equipment if e.zone!="库存"]
@@ -360,6 +395,7 @@ class StateTracker:
         self.last_shop_signature=None
         self.pending_signature=None
         self.pending_at=0
+        self.last_investment_signature=None
 
     def merge(self,observed:GameState):
         old=self.state
@@ -374,18 +410,47 @@ class StateTracker:
         old.scene=observed.scene; old.at=observed.at; old.warning=observed.warning
         old.unresolved=observed.unresolved
         old.visible_zones=observed.visible_zones
+        old.investment_kind=observed.investment_kind
+        # Choices are transient, separate from investments confirmed as selected.
+        # Leaving the page never implies which of the three cards was selected.
+        if observed.scene=="投资选择":
+            manual=[s for s in old.investment_choices if s.source=="手动"]
+            signature=tuple(sorted((s.kind,s.id,s.slot) for s in observed.investment_choices))
+            if self.last_investment_signature is not None and signature!=self.last_investment_signature:
+                manual=[]
+            self.last_investment_signature=signature
+            old.investment_choices=manual+[s for s in observed.investment_choices
+                                          if (s.kind,s.id,s.zone) not in self.ignored
+                                          and s.slot not in {v.slot for v in manual}
+                                          and (s.kind,s.id) not in {(v.kind,v.id) for v in manual}]
+        else:
+            old.investment_choices=[]
+            self.last_investment_signature=None
         # Fully visible panels replace automatic records, including an empty inventory.
         # A missed icon becomes unknown rather than a phantom owned unit after a sale.
-        old.roles=[r for r in old.roles if r.source=="手动" or r.zone not in observed.visible_zones]
-        # Fresh round overrides manual economic values: they cannot silently survive purchases.
+        previous=list(old.roles)
+        matched=set()
+        fresh=[]
+        def near(a,b):
+            if not a.box or not b.box:
+                return None
+            dx=abs((a.box[0]+a.box[2]-b.box[0]-b.box[2])/2)
+            dy=abs((a.box[1]+a.box[3]-b.box[1]-b.box[3])/2)
+            return dx*dx+dy*dy if dx<45 and dy<65 else None
         for seen in observed.roles:
             if (seen.kind,seen.id,seen.zone) in self.ignored:continue
-            same=[r for r in old.roles if r.id==seen.id and r.zone==seen.zone and r.source!="手动"]
-            if same:
-                if observed.scene!="准备":seen.star=seen.star or same[0].star
-                old.roles[old.roles.index(same[0])]=seen
-            elif not any(r.id==seen.id and r.zone==seen.zone and r.source=="手动" for r in old.roles):
-                old.roles.append(seen)
+            if any(r.id==seen.id and r.zone==seen.zone and r.source=="手动" for r in previous):
+                continue
+            candidates=[(distance,i) for i,r in enumerate(previous)
+                        if i not in matched and r.source!="手动" and r.id==seen.id and r.zone==seen.zone
+                        and (distance:=near(r,seen)) is not None]
+            if candidates:
+                _,i=min(candidates)
+                matched.add(i)
+                if observed.scene!="准备":seen.star=seen.star or previous[i].star
+            fresh.append(seen)
+        old.roles=[r for i,r in enumerate(previous) if r.source=="手动" or
+                   (i not in matched and r.zone not in observed.visible_zones)]+fresh
         old.roles=[r for r in old.roles if r.source=="手动" or time.time()-r.at<180]
         if "库存" in observed.visible_zones or any(e.source=="库存图标" for e in observed.equipment):
             old.equipment=[e for e in old.equipment if e.zone!="库存" or e.source=="手动"]
@@ -402,9 +467,10 @@ class StateTracker:
         if self.manual_shop is not None and observed.scene=="准备":
             old.shop=self.manual_shop
             old.warning=(old.warning+" 商店为手动记录；刷新后请清除手动商店。").strip()
-        if observed.strategies:
-            chosen=[s for s in old.strategies if s.zone=="已选"]
-            old.strategies=chosen+[s for s in observed.strategies if s.id not in {v.id for v in chosen}]
+        chosen=[s for s in old.strategies if s.zone=="已选"]
+        old.strategies=chosen+[s for s in observed.strategies if s.zone!="待选" and s.id not in {v.id for v in chosen}]
+        if old.environment and old.environment.zone=="待选":
+            old.environment=None
         if observed.environment and (not old.environment or old.environment.zone!="已选"):
             old.environment=observed.environment
         return old

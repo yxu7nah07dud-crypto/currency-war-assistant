@@ -6,6 +6,7 @@ from ctypes import wintypes
 from dataclasses import dataclass
 import threading
 import time
+import importlib
 
 import numpy as np
 
@@ -54,6 +55,20 @@ class CaptureUnavailable(RuntimeError):
     pass
 
 
+class CaptureDependencyUnavailable(CaptureUnavailable):
+    pass
+
+
+def load_capture_backend():
+    try:
+        # Exercise both the Python wrapper and the native extension. A working
+        # GUI alone is not enough to validate a PyInstaller release.
+        importlib.import_module("windows_capture.windows_capture")
+        return importlib.import_module("windows_capture").WindowsCapture
+    except (ImportError, OSError) as error:
+        raise CaptureDependencyUnavailable(str(error)) from error
+
+
 class WindowCapture:
     def __init__(self):
         self.window = None
@@ -65,31 +80,37 @@ class WindowCapture:
         self.closed = True
 
     def start(self, window: Window):
-        from windows_capture import WindowsCapture
         self.stop()
-        self.window = window
-        self.closed = False
-        self._frame = None
-        self._capture = WindowsCapture(
-            cursor_capture=False, draw_border=None, secondary_window=False,
-            minimum_update_interval=250, window_hwnd=window.hwnd,
-        )
+        WindowsCapture = load_capture_backend()
+        with self._lock:
+            self._frame = None
+            self._at = 0.0
+        try:
+            self._capture = WindowsCapture(
+                cursor_capture=False, draw_border=None, secondary_window=False,
+                minimum_update_interval=250, window_hwnd=window.hwnd,
+            )
 
-        @self._capture.event
-        def on_frame_arrived(frame, control):
-            now = time.monotonic()
-            if now - self._at < 0.25:
-                return
-            image = np.ascontiguousarray(frame.frame_buffer[:, :, :3]).copy()
-            with self._lock:
-                self._frame = image
-                self._at = now
+            @self._capture.event
+            def on_frame_arrived(frame, control):
+                now = time.monotonic()
+                if now - self._at < 0.25:
+                    return
+                image = np.ascontiguousarray(frame.frame_buffer[:, :, :3]).copy()
+                with self._lock:
+                    self._frame = image
+                    self._at = now
 
-        @self._capture.event
-        def on_closed():
-            self.closed = True
+            @self._capture.event
+            def on_closed():
+                self.closed = True
 
-        self._control = self._capture.start_free_threaded()
+            self.window = window
+            self.closed = False
+            self._control = self._capture.start_free_threaded()
+        except Exception:
+            self.stop()
+            raise
 
     def latest(self):
         if not self.window or self.closed or not _user32().IsWindow(self.window.hwnd):
@@ -108,13 +129,11 @@ class WindowCapture:
 
     def stop(self):
         control, self._control = self._control, None
-        if control is not None:
-            control.stop()
-        self.closed = True
-
-
-def set_overlay_capture_exclusion(hwnd: int) -> bool:
-    """Exclude only our own overlay from capture; this is not a protection bypass."""
-    user = _user32()
-    user.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
-    return bool(user.SetWindowDisplayAffinity(hwnd, 0x11))
+        try:
+            if control is not None:
+                control.stop()
+        finally:
+            self.closed = True
+            self._capture = None
+def unsupported_client_title(title):
+    return 'Honkai: Star Rail' in title or '崩壞' in title

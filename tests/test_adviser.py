@@ -127,6 +127,15 @@ class AdviserTests(unittest.TestCase):
         self.assertIs(find_guide_by_code(self.guides, spaced), self.guide)
         self.assertIsNone(find_guide_by_code(self.guides, "not-a-guide-code"))
 
+    def test_game_share_wrapper_matches_raw_cached_code(self):
+        code = "QUJDREVGR0g="
+        guide = {"id": "synthetic-guide", "tourn_detail": {"share_code": code}}
+        wrapped = "##QUJD\nREVGR0g=##->复制到游戏内【货币战争】中【输入攻略码】使用<-"
+        self.assertEqual(code, normalize_share_code(wrapped))
+        self.assertEqual(guide, find_guide_by_code([guide], "攻略码：" + wrapped))
+        self.assertEqual(guide, find_guide_by_code([guide], code + "##->使用说明<-"))
+        self.assertIsNone(find_guide_by_code([guide], "##V1JPTkc=##->使用说明<-"))
+
     def test_duplicate_material_recipe_requires_two_copies(self):
         self.assertTrue(any(recipe.get("material-a") == 2 for recipe in recipes(self.catalog, "target-gear")))
 

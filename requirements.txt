@@ -1,7 +1,7 @@
-windows-capture==2.0.1
+# First run: python tools/prepare_capture_wheel.py --install
+# windows-capture==2.0.1+cwa.headless1 is prepared from the upstream wheel.
 rapidocr==3.10.0
 onnxruntime==1.30.0
-opencv-python==5.0.0.93
+opencv-python-headless==5.0.0.93
 numpy==2.5.3
 Pillow==12.3.0
-pyinstaller==6.22.3

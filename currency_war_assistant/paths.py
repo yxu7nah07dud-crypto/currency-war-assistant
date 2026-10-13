@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
-ASSETS = ROOT / "assets"
 DATA_ROOT = Path(sys.executable).parent if getattr(sys, "frozen", False) else ROOT
 DATA = DATA_ROOT / "CurrencyWarAssistantData"
 LEGACY_DATA = DATA_ROOT / "助手数据"

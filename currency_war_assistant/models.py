@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 import time
 import unicodedata
+import logging
 
 
 def normalize(text: str) -> str:
@@ -41,6 +42,8 @@ class GameState:
     equipment: list[Seen] = field(default_factory=list)
     strategies: list[Seen] = field(default_factory=list)
     environment: Seen | None = None
+    investment_choices: list[Seen] = field(default_factory=list)
+    investment_kind: str = ""
     unresolved: list[dict] = field(default_factory=list)
     at: float = 0.0
     warning: str = ""
@@ -53,7 +56,7 @@ class GameState:
         if self.round:
             chapter = int(self.round.split("-")[0])
             return "Early" if chapter <= 1 else "Middle" if chapter == 2 else "Final"
-        return "Early" if self.level is None or self.level <= 5 else "Middle" if self.level <= 7 else "Final"
+        return "Early"
 
     def owned_ids(self):
         return {r.id for r in self.roles if r.id and r.confidence >= .8 and r.zone in ("前台", "后台", "备战")}
@@ -88,8 +91,13 @@ class Catalog:
     def pool(self, kind):
         return {"角色": self.roles, "装备": self.equipment, "策略": self.strategies, "环境": self.environments}[kind]
 
-    def name(self, identifier: str):
-        for pool in (self.roles, self.equipment, self.strategies, self.environments):
+    def name(self, identifier: str, kind: str | None = None):
+        if kind:
+            return self.pool(kind).get(identifier, {}).get("name", identifier)
+        pools=(self.roles, self.equipment, self.strategies, self.environments)
+        if sum(identifier in pool for pool in pools)>1:
+            logging.warning("Catalog.name ambiguous id %s; specify kind",identifier)
+        for pool in pools:
             if identifier in pool:
                 return pool[identifier].get("name", identifier)
         return identifier
