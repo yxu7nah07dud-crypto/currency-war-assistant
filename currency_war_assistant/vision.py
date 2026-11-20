@@ -10,6 +10,10 @@ import numpy as np
 
 from .models import Seen, Catalog, GameState, normalize
 from .paths import read_json, write_json
+from .encounter import canonical_debuff, rule_id
+from .portraits import PortraitBank
+from .season import PENDING_RANK
+from .season_play import observe_rank, observe_voyage, spotlight_items
 
 
 DEFAULT_REGIONS = {
@@ -21,6 +25,122 @@ DEFAULT_REGIONS = {
 }
 
 
+def detect_a8_difficulty(rows, shape):
+    """Read the number shown under the game's A8 difficulty banner.
+
+    The banner is on the game canvas (upper-left), while the assistant's own
+    status line may also contain an A8 number. Restrict candidates to the
+    upper-left game area and choose the nearest numeric row below the A8
+    heading so the overlay's default value cannot be mistaken for the game
+    value.
+    """
+    h, w = shape[:2]
+    banners = []
+    # Do not use a trailing ``\b``: OCR often returns ``A8财富造物主``
+    # without a space, and both the digit and the following Han characters
+    # are word characters to Python's Unicode regular-expression engine.
+    inline = re.compile(r"(?i)A\s*8\s*[·•.\-:：]?\s*(\d{2})(?!\d)")
+    a8 = re.compile(r"(?i)A\s*8(?!\d)")
+    wealth=[]
+    for row in rows:
+        if row.get("confidence", 0) < .70:
+            continue
+        box = row["box"]
+        cx = (box[0] + box[2]) / 2 / w
+        cy = (box[1] + box[3]) / 2 / h
+        if not .02 <= cx <= .45 or cy > .65:
+            continue
+        text = row["text"].replace("O", "0")
+        if text.startswith(('普通','Normal','通常')) or '待确认' in text:
+            continue
+        match=re.search(r'财富造物主\s*([0-9]{1,2})(?![0-9])',text)
+        if match and 1<=int(match[1])<=99:
+            wealth.append((cx,cy,int(match[1])))
+        match = inline.search(text)
+        if match:
+            return int(match.group(1))
+        if a8.search(text):
+            banners.append((cx, cy))
+    if not banners:
+        return None
+
+    # The resume screen places “财富造物主50” beside or below an A8 label.
+    # Require the game label nearby, so guide text cannot set the difficulty.
+    paired=[(abs(cx-bx)+abs(cy-by),value) for cx,cy,value in wealth
+            for bx,by in banners if abs(cx-bx)<=.22 and abs(cy-by)<=.12]
+    if paired:
+        return min(paired)[1]
+
+    candidates = []
+    for row in rows:
+        if row.get("confidence", 0) < .70 or not row["text"].strip().isdigit():
+            continue
+        value = int(row["text"].strip())
+        if not 10 <= value <= 99:
+            continue
+        box = row["box"]
+        cx = (box[0] + box[2]) / 2 / w
+        cy = (box[1] + box[3]) / 2 / h
+        if not .02 <= cx <= .45 or cy > .72:
+            continue
+        for bx, by in banners:
+            dy = cy - by
+            if 0.02 <= dy <= .20 and abs(cx - bx) <= .16:
+                candidates.append((dy + abs(cx - bx) * .1, value))
+    return min(candidates)[1] if candidates else None
+
+
+def detect_enemy_modifiers(rows, shape, seasonal=False):
+    """Read the bottom game strip anchored to its enemy-difficulty label.
+
+    Unanchored text (shop names, UID, and the assistant's own summary) is never
+    treated as a modifier. Coordinates are relative to the game capture.
+    """
+    h, w = shape[:2]
+    panel = [r for r in rows if r.get('confidence', 0) >= .80
+             and .76 <= (r['box'][1] + r['box'][3]) / 2 / h <= .96]
+    anchors = [r for r in panel if '敌人难度' in normalize(r['text'])
+               and r['box'][0] / w < .23]
+    if not anchors:
+        return None, []
+    anchor = min(anchors, key=lambda r: r['box'][0])
+    ay = (anchor['box'][1] + anchor['box'][3]) / 2
+    inline = re.search(r'敌\s*人\s*难\s*度\s*[:：]?\s*([0-9]{1,3})(?![0-9])', anchor['text'])
+    difficulty = int(inline[1]) if inline else None
+    # A value split into its own OCR box must sit immediately to the right of
+    # the label, on the same baseline. Unrelated values below are excluded.
+    if difficulty is None:
+        candidates = [r for r in panel if r['text'].strip().isdigit()
+                      and 0 <= r['box'][0] - anchor['box'][2] <= .045 * w
+                      and abs((r['box'][1] + r['box'][3]) / 2 - ay) <= .02 * h]
+        if candidates:
+            difficulty = int(min(candidates, key=lambda r: r['box'][0])['text'])
+    if difficulty is not None and not 0 <= difficulty <= 999:
+        difficulty = None
+    labels = []
+    for row in sorted(panel, key=lambda r: r['box'][0]):
+        if abs((row['box'][1] + row['box'][3]) / 2 - ay) > .022 * h:
+            continue
+        if row['box'][0] < anchor['box'][0]:
+            continue
+        if seasonal and row['box'][0] / w >= .73:
+            continue
+        text = row['text'].strip()
+        if row is anchor:
+            text = text[inline.end():] if inline else ''
+        parts = [text] if rule_id(text, seasonal) is not None else re.split(r'[\s、;；|]+', text)
+        for part in parts:
+            name = canonical_debuff(part, seasonal)
+            if not name or not 2 <= len(name) <= 40:
+                continue
+            if rule_id(name, seasonal) is None and (not re.fullmatch(r'[\u4e00-\u9fff·]+', name)
+                                         or any(v in name for v in ('下一步', '开始对局', '难度', '标准博弈', '晋升点'))):
+                continue
+            if name not in labels:
+                labels.append(name)
+    return difficulty, labels
+
+
 def region_contains(box, rect, shape):
     h,w = shape[:2]
     x,y = (box[0]+box[2])/2/w, (box[1]+box[3])/2/h
@@ -28,8 +148,57 @@ def region_contains(box, rect, shape):
     return a <=x<=c and b<=y<=d
 
 
+def investment_detail_headers(rows,shape):
+    """Owned-investment tooltip on the preparation HUD, not the choice page."""
+    h,w=shape[:2]
+    hud=any('购买经验' in r['text'] and r['box'][1]/h>.70 and r['box'][0]/w<.32
+            and r['confidence']>=.8 for r in rows)
+    if not hud:return []
+    return [r for r in rows if normalize(r['text']) in ('投资环境','投资策略')
+            and r['confidence']>=.85 and .13<(r['box'][1]+r['box'][3])/2/h<.50]
+
+
+def selected_investments(rows,catalog,scene,shape):
+    """Accept explicit owned-investment labels, never unconfirmed card titles."""
+    if scene=='投资选择':return []
+    result=[]
+    h,w=shape[:2]
+    for header in investment_detail_headers(rows,shape):
+        kind='环境' if normalize(header['text'])=='投资环境' else '策略'
+        hx=(header['box'][0]+header['box'][2])/2
+        hy=header['box'][3]
+        titles=[r for r in rows if r['confidence']>=.85 and .005*h<r['box'][1]-hy<.09*h
+                and abs((r['box'][0]+r['box'][2])/2-hx)<.20*w]
+        matches=[(identifier,r) for r in titles for identifier,item in catalog.pool(kind).items()
+                 if normalize(item.get('name',''))==normalize(r['text'])]
+        if len(matches)==1:
+            identifier,r=matches[0]
+            result.append(Seen(identifier,catalog.name(identifier,kind),kind,'已选',
+                               confidence=r['confidence'],source='文字',box=r['box']))
+    for kind,prefixes in (('环境',('已选投资环境','当前投资环境','已选环境')),
+                          ('策略',('已选投资策略','已选策略'))):
+        for row in rows:
+            if row['confidence']<.85:continue
+            token=normalize(row['text'])
+            prefix=next((p for p in prefixes if token.startswith(p)),None)
+            if not prefix:continue
+            remainder=token[len(prefix):]
+            candidates=[row] if remainder else [r for r in rows if r['confidence']>=.85
+                        and abs((r['box'][1]+r['box'][3]-row['box'][1]-row['box'][3])/2)<=45
+                        and 0<=r['box'][0]-row['box'][2]<=100]
+            for candidate in candidates:
+                name=remainder if remainder else normalize(candidate['text'])
+                matches=[i for i,item in catalog.pool(kind).items() if normalize(item.get('name',''))==name]
+                if len(matches)==1:
+                    identifier=matches[0]
+                    result.append(Seen(identifier,catalog.name(identifier,kind),kind,'已选',
+                                       confidence=candidate['confidence'],source='文字',box=candidate['box']))
+    return result
+
+
 class IconMatcher:
     def __init__(self, data):
+        self.portraits=PortraitBank(data)
         self.templates = []
         self.equipment_templates=[]
         # Official role/equipment art is deliberately not bundled in the public
@@ -44,6 +213,12 @@ class IconMatcher:
                 if image is not None:
                     self.custom.append((entry,image))
         self.bf = cv2.BFMatcher(cv2.NORM_L2)
+        self.set_portraits(self.portraits)
+
+    def set_portraits(self,bank):
+        self.portraits=bank
+        self.templates=[([{'id':i,'kind':'角色'} for i in reference['ids']],reference['shape'],
+                         reference['points'],reference['desc']) for reference in bank.references]
 
     def find(self, image, kinds=None):
         height,width=image.shape[:2]
@@ -59,12 +234,12 @@ class IconMatcher:
                     continue
                 pairs=self.bf.knnMatch(tdesc,desc,k=2)
                 good=[a for a,b in pairs if a.distance<.70*b.distance and a.distance<250]
-                if len(good)<5:
+                if len(good)<8:
                     continue
                 src=np.float32([tpoints[m.queryIdx].pt for m in good])
                 dst=np.float32([kp[m.trainIdx].pt for m in good])
                 matrix,mask=cv2.findHomography(src,dst,cv2.RANSAC,3)
-                if matrix is None or mask is None or mask.sum()<5:
+                if matrix is None or mask is None or mask.sum()<8 or mask.sum()/len(good)<.55:
                     continue
                 corners=np.float32([[0,0],[tw,0],[tw,th],[0,th]]).reshape(-1,1,2)
                 pts=cv2.perspectiveTransform(corners,matrix).reshape(-1,2)/scale
@@ -207,21 +382,73 @@ class Recognizer:
 
     def parse_rows(self,rows,shape):
         joined=" ".join(r["text"] for r in rows)
+        catalog = getattr(self,"catalog",None)
+        seasonal = bool(catalog and catalog.season)
+        enemy_difficulty, debuffs = detect_enemy_modifiers(rows, shape, seasonal)
+        confident = [r for r in rows if r["confidence"]>=.8]
+        headings = {normalize(r["text"]) for r in confident if r["box"][1] < .28*shape[0]}
+        voyage_heading = seasonal and bool(headings & {"奇遇","奇遇伙伴","奇遇效果","本局奇遇"})
+        spotlight_heading = seasonal and bool(headings & {"主角光环","选择主角","选择主角光环","选择一名员工成为主角"})
+        spotlight_confirmed = seasonal and bool(headings & {"已获得主角光环","已选主角光环","当前主角光环"})
+        enemy_page = (enemy_difficulty is not None or debuffs) and any(
+            normalize(r['text']) in (('下一步','下一') if seasonal else ('下一步',))
+            and r['confidence'] >= .8
+            and r['box'][0] / shape[1] > .65 and r['box'][1] / shape[0] > .80 for r in rows)
+        if seasonal and enemy_difficulty is not None and sum(rule_id(name,True) is not None for name in debuffs)>=2:
+            enemy_page = enemy_page or not any(label in joined for label in ('购买经验','商店'))
         # Investment descriptions can contain damage, refresh and upgrade terms.
         # Use the actual page heading before interpreting those words as scenes.
         investment_heading=any(normalize(r["text"]) in ("投资策略","投资环境","选择投资")
                                and (r["box"][1]+r["box"][3])/2/shape[0]<.20 for r in rows)
-        if investment_heading:
+        investment_detail=bool(investment_detail_headers(rows,shape))
+        resume_page=any('继续进度' in r['text'] for r in rows) and any('结束并结算' in r['text'] for r in rows)
+        if resume_page:
+            scene='对局菜单'
+        elif seasonal and headings & {"标准博弈","超频博弈"} and any(
+            normalize(r["text"])=="开始对局" and r["box"][1]>.8*shape[0] for r in confident
+        ):
+            scene='开局菜单'
+        elif voyage_heading:
+            scene='奇遇'
+        elif spotlight_heading:
+            scene='光环选择'
+        elif spotlight_confirmed:
+            scene='光环详情'
+        elif investment_detail:
+            scene='准备'
+        elif enemy_page:
+            scene="敌人情报"
+        elif investment_heading:
             scene="投资选择"
         elif any(word in joined for word in ("我方行动中","敌方行动中","自动战斗")) or ("伤害" in joined and "刷新" not in joined and "开始战斗" not in joined):
             scene="战斗"
-        elif any(word in joined for word in ("投资策略","投资环境","选择投资")) and "刷新商店" not in joined:
+        elif any(normalize(r['text']).startswith(('投资策略','投资环境','选择投资')) for r in rows) and "刷新商店" not in joined:
             scene="投资选择"
         elif any(word in joined for word in ("商店","开始战斗","购买经验","刷新","备战","升级")):
             scene="准备"
         else:
             scene="其他"
         state=GameState(scene=scene,at=time.time())
+        if seasonal:
+            state.difficulty = observe_rank(rows, shape) or PENDING_RANK
+            if headings & {"超频博弈"} and not headings & {"标准博弈"}:
+                state.mode = "超频博弈"
+            elif headings & {"标准博弈"} and not headings & {"超频博弈"}:
+                state.mode = "标准博弈"
+            if voyage_heading:
+                state.voyage = observe_voyage(confident)
+            if spotlight_heading or spotlight_confirmed:
+                state.spotlight_choices = spotlight_items(confident,catalog,shape,spotlight_confirmed)
+        else:
+            difficulty = detect_a8_difficulty(rows, shape)
+            if difficulty is not None:
+                state.difficulty = f"普通 A8·{difficulty}"
+        state.enemy_difficulty, state.debuffs = enemy_difficulty, debuffs
+        if resume_page:
+            for row in rows:
+                match=re.search(r'当前进度\s*([1-5])\s*[-一]\s*(\d{1,2})',row['text'])
+                if match and row['confidence']>=.85:state.round=f'{match[1]}-{match[2]}'
+            return state
         if scene=="投资选择":
             headings={normalize(r["text"]) for r in rows if (r["box"][1]+r["box"][3])/2/shape[0]<.20}
             state.investment_kind="环境" if "投资环境" in headings else "策略" if "投资策略" in headings else ""
@@ -245,7 +472,7 @@ class Recognizer:
                 if round_match:state.round=f"{round_match[1]}-{round_match[2]}"
             if scene=="准备" and text.isdigit() and .844<x<.875 and .829<y<.88:
                 state.gold=int(text)
-            level_match=re.search(r"(?:等级|Lv\.?|LV\.?)\s*(10|[1-9])\b",text)
+            level_match=re.search(r"(?:等级|Lv\.?|LV\.?)\s*(10|[1-9])\b",text) if scene != '敌人情报' else None
             if level_match:
                 state.level=int(level_match[1])
             if text.isdigit() and scene=="准备" and .15<x<.27 and .78<y<.93 and 1<=int(text)<=10:
@@ -255,11 +482,29 @@ class Recognizer:
                     state.level=int(text)
             if re.fullmatch(r"\d{1,3}/\d{1,3}",text) and .1<x<.32 and y>.72 and scene=="准备":
                 state.xp=text
+        if spotlight_confirmed:
+            plane = int(state.round[0]) if state.round else None
+            if plane is None:
+                planes = {"一":1,"二":2,"1":1,"2":2}
+                plane = next((planes[m[1]] for label in headings
+                              if (m := re.fullmatch(r"第?([一二12])位面", label))),None)
+            if plane in (1,2) and len(state.spotlight_choices)==1:
+                item = state.spotlight_choices[0]
+                item.slot = plane
+                state.spotlights[plane] = item
+            state.spotlight_choices = []
         return state
 
     def analyze(self,image):
         rows=self.read_text(image)
         state=self.parse_rows(rows,image.shape)
+        selected=selected_investments(rows,self.catalog,state.scene,image.shape)
+        for item in selected:
+            if item.kind=='环境':state.environment=item
+            else:state.strategies.append(item)
+        if state.scene in ('敌人情报','奇遇','光环选择','光环详情','对局菜单','开局菜单'):
+            # Opponent portraits are never player-owned roles or shop cards.
+            return state, rows
         standard_layout=state.scene=="准备" and any("购买经验" in r["text"] for r in rows) and any("后台区域" in r["text"] for r in rows)
         if standard_layout:
             state.visible_zones={"前台","后台","备战","库存"}
@@ -272,6 +517,8 @@ class Recognizer:
                         match=re.fullmatch(r"(?:Lv\.?|LV\.?)\s*(10|[1-9])",row["text"])
                         if match:state.level=int(match[1])
         entities=[]
+        if state.scene=='准备' and any('购买经验' in r['text'] for r in rows):
+            entities.extend(self.matcher.portraits.bench(image,self.regions['备战'],set(self.catalog.roles)))
         for row in rows:
             if row["confidence"]<.80:
                 continue
@@ -338,8 +585,9 @@ class Recognizer:
                 else:
                     state.unresolved.append({**entity,"zone":zone,"reason":"装备已识别，库存或穿戴状态待确认"})
             elif kind=="策略":
-                state.strategies.append(item)
-            elif kind=="环境":
+                if not any(s.id==item.id and s.zone=='已选' for s in state.strategies):
+                    state.strategies.append(item)
+            elif kind=="环境" and (not state.environment or state.environment.zone!='已选'):
                 state.environment=item
         # A shop card may be found by both its title and its portrait. Count the slot once.
         by_slot={}
@@ -386,8 +634,9 @@ class Recognizer:
 
 class StateTracker:
     """Visible shop is transient; hidden inventory is retained as last observed, never guessed."""
-    def __init__(self):
-        self.state=GameState()
+    def __init__(self, difficulty="普通 A8·待确认"):
+        self.default_difficulty = difficulty
+        self.state=GameState(difficulty=difficulty)
         self.manual=[]
         self.manual_shop=None
         self.manual_equipment=None
@@ -399,9 +648,26 @@ class StateTracker:
 
     def merge(self,observed:GameState):
         old=self.state
+        # Keep the last confirmed A8 variant while the banner is temporarily
+        # covered by a transition or the assistant overlay.
+        if observed.difficulty not in ("普通 A8·待确认",PENDING_RANK) and 'difficulty' not in old.manual_fields:
+            old.difficulty = observed.difficulty
+        if observed.mode:
+            old.mode = observed.mode
+        if observed.voyage and "voyage" not in old.manual_fields:
+            if not old.voyage or old.voyage.name != observed.voyage.name or observed.voyage.id:
+                old.voyage = observed.voyage
+        old.spotlight_choices = observed.spotlight_choices if observed.scene=="光环选择" else []
+        for plane,item in observed.spotlights.items():
+            if f"spotlight_{plane}" not in old.manual_fields:
+                old.spotlights[plane] = item
+        if observed.enemy_difficulty is not None and 'enemy_difficulty' not in old.manual_fields:
+            old.enemy_difficulty = observed.enemy_difficulty
+        if observed.debuffs and 'debuffs' not in old.manual_fields:
+            old.debuffs = list(observed.debuffs)
         # Corrections last until a reliably observed value changes or a new round starts.
         if observed.round and observed.round!=old.round:
-            old.manual_fields.clear()
+            old.manual_fields.difference_update(('round','gold','level','hp','xp','capacity'))
         for field in ("round","gold","level","xp","hp","capacity"):
             value=getattr(observed,field)
             if value is not None:
@@ -471,9 +737,9 @@ class StateTracker:
         old.strategies=chosen+[s for s in observed.strategies if s.zone!="待选" and s.id not in {v.id for v in chosen}]
         if old.environment and old.environment.zone=="待选":
             old.environment=None
-        if observed.environment and (not old.environment or old.environment.zone!="已选"):
+        if observed.environment and (observed.environment.zone=='已选' or not old.environment or old.environment.zone!="已选"):
             old.environment=observed.environment
         return old
 
     def reset(self):
-        self.__init__()
+        self.__init__(self.default_difficulty)

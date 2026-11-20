@@ -10,6 +10,9 @@ def validate_cli(arguments):
     usage={"--self-test":(1,"--self-test OUTPUT.json [--check-game]"),
            "--verify-guide":(2,"--verify-guide OUTPUT.json GUIDE_CODE"),
            "--verify-investment":(3,"--verify-investment OUTPUT.json IMAGE CONFIG.json"),
+           "--verify-context":(3,"--verify-context OUTPUT.json IMAGE CONFIG.json"),
+           "--verify-matching":(3,"--verify-matching OUTPUT.json IMAGE DATA_DIRECTORY"),
+           "--verify-encounter":(2,"--verify-encounter OUTPUT.json IMAGE"),
            "--guide-code":(1,"--guide-code GUIDE_CODE")}
     for flag,(count,example) in usage.items():
         if flag not in arguments:continue
@@ -48,10 +51,22 @@ def main():
         from currency_war_assistant.diagnostics import run_guide_test
         index=sys.argv.index("--verify-guide")
         return run_guide_test(Path(sys.argv[index+1]),sys.argv[index+2])
+    if "--verify-context" in sys.argv:
+        from currency_war_assistant.diagnostics import run_context_test
+        index=sys.argv.index('--verify-context')
+        return run_context_test(Path(sys.argv[index+1]),Path(sys.argv[index+2]),Path(sys.argv[index+3]))
+    if '--verify-matching' in sys.argv:
+        from currency_war_assistant.diagnostics import run_matching_test
+        index=sys.argv.index('--verify-matching')
+        return run_matching_test(Path(sys.argv[index+1]),Path(sys.argv[index+2]),Path(sys.argv[index+3]))
     if "--verify-investment" in sys.argv:
         from currency_war_assistant.diagnostics import run_investment_test
         index=sys.argv.index("--verify-investment")
         return run_investment_test(Path(sys.argv[index+1]),Path(sys.argv[index+2]),Path(sys.argv[index+3]))
+    if "--verify-encounter" in sys.argv:
+        from currency_war_assistant.diagnostics import run_encounter_test
+        index=sys.argv.index("--verify-encounter")
+        return run_encounter_test(Path(sys.argv[index+1]),Path(sys.argv[index+2]))
     from currency_war_assistant.paths import data_dir
     data=data_dir()
     logging.basicConfig(filename=data / "assistant.log",level=logging.WARNING,encoding="utf8",format="%(asctime)s %(levelname)s %(message)s")

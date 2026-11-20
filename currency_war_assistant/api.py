@@ -11,6 +11,7 @@ import uuid
 from .paths import read_json, write_json
 from . import __version__
 from .share import find_guide_by_code, normalize_share_code, trait_hints
+from .season import current_guide, season_key
 
 BASE = "https://act-api-takumi.miyoushe.com/event/rpgcurrencywar"
 WEB = "https://act.miyoushe.com/sr/event/currency-wars/index.html"
@@ -18,8 +19,9 @@ ORDERS = ("Hot", "CreatedTime")
 
 
 class GuideClient:
-    def __init__(self, cache: Path):
+    def __init__(self, cache: Path, season=None):
         self.cache = cache
+        self.season = season
         self.cache.mkdir(parents=True, exist_ok=True)
         self.headers = {
             "Content-Type": "application/json", "x-rpc-platform": "pc",
@@ -28,6 +30,7 @@ class GuideClient:
             "User-Agent": f"CurrencyWarAssistant/{__version__}",
         }
         self.online = False
+        self.version_mismatch = False
         self.error = ""
         self.updated_at = 0.0
         self._lock = threading.RLock()
@@ -48,11 +51,17 @@ class GuideClient:
         return value["data"]
 
     def cached_config(self):
-        return read_json(self.cache / "config.json", {}) or {}
+        config = read_json(self.cache / "config.json", {}) or {}
+        if self.season and season_key(config) != self.season:
+            return {}
+        return config
 
     def config(self):
         try:
             config = self.request("/game/config?game=hkrpg")
+            self.version_mismatch = bool(self.season and season_key(config) != self.season)
+            if self.version_mismatch:
+                raise RuntimeError("公开配置已切换版本，继续使用已验证的新赛季缓存。")
             with self._lock:
                 write_json(self.cache / "config.json", config)
             self.online, self.error = True, ""
@@ -66,7 +75,8 @@ class GuideClient:
             if self._guides is None:
                 saved = read_json(self.cache / "guides.json", {}) or {}
                 self.updated_at = saved.get("at", 0)
-                self._guides = {g["id"]: g for g in saved.get("guides", []) if g.get("id")}
+                self._guides = {g["id"]: g for g in saved.get("guides", [])
+                                if g.get("id") and (not self.season or current_guide(g, self.season))}
                 for guide in self._guides.values():
                     guide.setdefault("last_seen",time.time())
                     guide.setdefault("missing_full_syncs",0)
@@ -91,6 +101,10 @@ class GuideClient:
                 old = self._guides.get(identifier, {})
                 merged = {**old, **guide}
                 merged["tourn_detail"] = {**old.get("tourn_detail", {}), **guide.get("tourn_detail", {})}
+                if self.season and not current_guide(merged, self.season):
+                    if old or season_key(merged["tourn_detail"]) == self.season:
+                        self._guides.pop(identifier, None)
+                    continue
                 if not merged.get("description"):
                     merged["description"] = old.get("description", "")
                 self._guides[identifier] = merged
@@ -107,6 +121,8 @@ class GuideClient:
             write_json(self.cache / "guides.json", snapshot)
 
     def list_page(self, order="Hot", page=1, token="", role_ids=None, trait_ids=None):
+        if self.version_mismatch:
+            raise RuntimeError("公开攻略已切换版本，当前只使用本机赛季缓存。")
         # Ordinary-mode public recommendation filters from the official site.
         # Server caps each page at ten. Larger requested limits cannot fix this.
         return self.request("/game/lineup/index", {
@@ -116,6 +132,8 @@ class GuideClient:
         })
 
     def detail(self, identifier):
+        if self.version_mismatch:
+            raise RuntimeError("公开攻略已切换版本，当前只使用本机赛季缓存。")
         from urllib.parse import urlencode
         return self.request("/game/lineup/detail?" + urlencode({"id": identifier, "game": "hkrpg"}))["lineup"]
 
@@ -265,6 +283,9 @@ class GuideClient:
         if find_guide_by_code([full], code) is None:
             raise RuntimeError("官方详情的攻略码不一致，未锁定该攻略。")
         self._merge([full])
+        if self.season and not current_guide(full, self.season):
+            self._save(force=True)
+            return None
         self.online, self.error = True, ""
         self.updated_at = time.time()
         self._save(force=True)

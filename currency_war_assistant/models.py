@@ -29,7 +29,19 @@ class Seen:
 
 @dataclass
 class GameState:
-    difficulty: str = "普通 A8·30"
+    # The A8 variant is read from the game banner when visible. Keep the
+    # fallback explicit instead of claiming the old A8·30 default before a
+    # game window has been recognized.
+    difficulty: str = "普通 A8·待确认"
+    mode: str = ""
+    voyage: Seen | None = None
+    spotlight_choices: list[Seen] = field(default_factory=list)
+    spotlights: dict[int, Seen] = field(default_factory=dict)
+    # Enemy modifiers are read from the lower-left encounter panel. Keep the
+    # values separate from the A8 banner so a covered panel does not overwrite
+    # a previously confirmed difficulty.
+    enemy_difficulty: int | None = None
+    debuffs: list[str] = field(default_factory=list)
     scene: str = "未观察"
     round: str | None = None
     gold: int | None = None
@@ -69,8 +81,9 @@ class GameState:
 
 
 class Catalog:
-    def __init__(self, config: dict, knowledge: dict | None = None):
+    def __init__(self, config: dict, knowledge: dict | None = None, season=None):
         self.config = config
+        self.season = season
         self.version = config.get("rpg_game_big_version", "未知")
         self.roles = {str(r["id"]): r for r in config.get("role_list", [])}
         self.equipment = {str(r["id"]): r for r in config.get("equipment_list", [])}
@@ -84,12 +97,14 @@ class Catalog:
         self.strategies = {str(r["id"]): r for r in config.get("fight_augment_list", [])}
         self.environments = {str(r["id"]): {**r,"name":r.get("name") or r.get("title") or str(r["id"])} for r in config.get("portal_list", [])}
         self.bonds = {str(r["trait_id"]): r for r in config.get("trait_info_list", [])}
+        self.spotlights = {str(r["id"]): r for r in config.get("spot_light_list", [])}
         self.knowledge = knowledge or {}
         self.kroles = {str(r["id"]): r for r in self.knowledge.get("roles", [])}
         self.kequipment = {normalize(r.get("name", "")): r for r in self.knowledge.get("equipment", [])}
 
     def pool(self, kind):
-        return {"角色": self.roles, "装备": self.equipment, "策略": self.strategies, "环境": self.environments}[kind]
+        return {"角色": self.roles, "装备": self.equipment, "策略": self.strategies,
+                "环境": self.environments, "主角光环": self.spotlights}[kind]
 
     def name(self, identifier: str, kind: str | None = None):
         if kind:
@@ -108,4 +123,8 @@ class Catalog:
 
     def cost(self, identifier):
         r = self.roles.get(identifier, {})
-        return int(r.get("rarity", 0) or 0)
+        rarity = int(r.get("rarity", 0) or 0)
+        if self.season:
+            from .season_data import SHOP_PRICES
+            return SHOP_PRICES.get(rarity, rarity)
+        return rarity

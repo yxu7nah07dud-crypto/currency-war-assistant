@@ -1,5 +1,32 @@
 # Changelog / 更新记录 / 更新履歴
 
+## v2.0.0 — 2026-11-20
+
+- 中文：支持 4.7「入画奇航」标准博弈。按赛季隔离攻略和识别数据，加入职级、奇遇、主角光环和新版词缀分析。运营采用新商店权重与已确认的阵容、投资和装备。
+- English: Added 4.7 Season 2 Standard Gambit rules, rank, Escapade and Plot Armor, season-specific recognition and guide caches, and updated shop and lineup advice.
+- 日本語：4.7 シーズン2標準モードの職級・奇遇・主役補正、更新した敵特性とショップ比率、シーズン別の攻略・認識記録に対応。
+
+## v1.0.7 — 2026-10-15
+
+- 攻略同时匹配真实持有、已选环境、作者环境推荐与概念股的羁绊收益；修复未知持有时 10 分封顶抹平环境差异，信息不足只显示“候选参考”，不自动指挥买人。
+- 官方配置头像按需缓存在本机，新增备战格子识别并用于前后台图像匹配；商店卡与持有严格区分，同头像多形态保留待确认，公开包不含游戏图标。攻略页显示实际匹配依据。
+- Guide ranking now preserves environment relevance with unknown owned roles, labels weak evidence as references, and uses locally cached official portraits to recognize ownership. No game icons are bundled.
+- 所持と環境の照合を修正し、情報不足は参考表示。公式画像を本機に保存して所持を認識し、ゲーム画像は配布に含めません。
+- 新增“难度 / 投资”：手动 A8 难度跨重启保留，恢复自动或新对局清除；补上继续进度“财富造物主50”识别。主界面显示已选环境与当前效果。
+- 准备阶段的已选环境详情不再误判为三选一，可读取“夜之半神概念股”等当前环境。观察到游戏内点卡、确认和离页后也自动记录实际投资；刷新/取消/超时不猜测选择。
+- Added persistent manual A8 difficulty, resume-screen recognition, selected-environment tooltip OCR and read-only card/Confirm tracking. Owned tooltips no longer appear as three-choice screens; version remains v1.0.7.
+- 手動 A8 難易度の再起動保持、再開画面認識、選択済み環境詳細の OCR とカード・確認操作の観察を追加。詳細画面を3択と誤判定せず、版はv1.0.7のまま。
+- 修复投资推荐被上一页滚动位置遮住的问题：进入投资页或刷新候选后自动显示“现在怎么做”的推荐开头；同组选项保留手动滚动和标签页，短暂漏识别不会反复跳转。
+- Investment advice now opens at the top when entering a choice page or refreshing its options. Repeated frames preserve the reader's scroll and tab, including temporarily missing OCR rows.
+- 投資画面への移動・候補更新時は提案の先頭を表示。同じ候補ではスクロールとタブを保持し、一時的な認識漏れで表示を移動しません。
+- 修复 A8 难度显示固定为 30 的问题：从游戏左上角难度横幅读取 50 等实际数值。
+- 未识别到难度横幅时显示“待确认”，避免把默认值误当成当前难度。
+- 新增敌人情报页面识别，读取敌人难度和同一行 DEBUFF，排除 UID、助手文字和下一步按钮；条件跨回合保留，新对局清除。
+- 依据 V4.6 公开游戏规则的 55 项词缀数值和 0–300 敌人难度表自动分析，区分侵蚀变体和位面范围；提供组合风险、未激活羁绊估算和闲置装备影响。无需手填效果。
+- 增加中/英/日规则摘要、对策与“识别纠正 → 敌人 / DEBUFF”入口，数值与名称可纠正，效果自动映射；版本号保持 v1.0.7。
+- Added automatic opponent-screen OCR, 55 rule-based affix analyses, per-plane enemy scaling, combination warnings and three-language explanations. Conditions persist until New game; version remains v1.0.7.
+- 敵情報の自動認識、55項目のルール分析、ステージ別難易度倍率、組合せリスクと三言語説明を追加。新しい対局まで保持し、版はv1.0.7のまま。
+
 ## v1.0.6 — 2026-10-12
 
 ### 中文

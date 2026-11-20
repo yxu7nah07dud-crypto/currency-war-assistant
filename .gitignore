@@ -1,11 +1,16 @@
+.assistant-venv/
 助手数据/
+CurrencyWarAssistantData/
 build/
 dist/
-work/
-outputs/
-.assistant-venv/
 __pycache__/
 *.pyc
+
+# Local captures, research downloads and generated public-release files.
+work/
+outputs/
+tests/tmp*/
+tests/_tmp/
 tests/_cache/
 assets/*.json
 assets/icons/

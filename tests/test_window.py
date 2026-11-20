@@ -108,6 +108,131 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(('0',),self.app.tree.selection())
         self.assertEqual(('角色','b','后台'),self.app._selected_key)
 
+    def test_difficulty_and_selected_environment_controls_work_in_three_languages(self):
+        from currency_war_assistant.models import GameState,Seen
+        environment=Seen('e','测试环境','环境','已选',confidence=1)
+        state=GameState(difficulty='普通 A8·50',environment=environment,manual_fields={'difficulty'})
+        self.app.controller.locked_title='';self.app.controller.locked=''
+        self.app.controller.get_state.return_value=state
+        self.app.controller.investment_options.return_value=[Seen('e','测试环境','环境','待选',slot=0,confidence=1)]
+        for language in ('zh','en','ja'):
+            with self.subTest(language=language):
+                self.app.language=language;self.app._rebuild_ui()
+                self.app.render({'state':state,'matches':[],'advice':[]});self.root.update()
+                self.assertIn('50',self.app.brief.get())
+                self.assertIn('测试环境',self.app.brief.get())
+                self.assertTrue(self.app.context_button.winfo_ismapped())
+                self.app.context_button.invoke();self.root.update()
+                self.app.difficulty_input.set('42')
+                self.app.difficulty_save_button.invoke()
+                self.app.controller.save_difficulty.assert_called_with('42')
+                self.app.correct_context();self.root.update()
+                button=self.app.investment_confirm_buttons[0]
+                dialog=button.winfo_toplevel()
+                self.assertLessEqual(button.winfo_rooty()+button.winfo_height(),dialog.winfo_rooty()+dialog.winfo_height())
+                button.invoke()
+                item=self.app.controller.correct_item.call_args.args[0]
+                self.assertEqual(('e','已选','手动'),(item.id,item.zone,item.source))
+
+    def test_new_game_uses_controller_to_clear_saved_difficulty_and_selection(self):
+        self.app.new_game()
+        self.app.controller.new_game.assert_called_once()
+
+    def test_unknown_owned_guides_are_references_with_environment_basis(self):
+        from currency_war_assistant.models import GameState,Seen
+        from currency_war_assistant.strategy import Match
+        self.app.controller.locked='';self.app.controller.locked_title=''
+        self.app.controller.catalog.cost.return_value=1
+        self.app.controller.get_state.return_value=GameState()
+        state=GameState(environment=Seen('e','测试环境','环境','已选',confidence=1))
+        match=Match({'id':'g','title':'测试攻略','tourn_detail':{}},10,provisional=True)
+        for language in ('zh','en','ja'):
+            self.app.language=language;self.app._rebuild_ui()
+            self.app.render_guides([match],state);self.root.update()
+            labels=[widget.cget('text') for widget in self.app.cards.winfo_children() if hasattr(widget,'cget') and widget.winfo_class()=='Label']
+            self.assertIn('测试环境',labels[0]);self.assertIn(self.app.t('guide_owned_missing'),labels[0])
+            card=next(widget for widget in self.app.cards.winfo_children() if widget.winfo_class()=='Frame')
+            title=card.winfo_children()[0].cget('text')
+            self.assertIn(self.app.t('guide_reference'),title);self.assertNotIn(self.app.t('main_pick'),title)
+
+    def test_new_investment_shows_recommendation_above_previous_enemy_scroll(self):
+        from currency_war_assistant.models import GameState,Seen
+        self.app.controller.locked_title='';self.app.controller.locked=''
+        enemy=GameState(scene='敌人情报')
+        long_advice=[('敌人情报','\n'.join(f'规则{i}' for i in range(100)))]
+        self.app.render({'state':enemy,'matches':[],'advice':long_advice})
+        self.root.update()
+        self.app.advice_text.yview_moveto(1.0)
+        self.assertGreater(self.app.advice_text.yview()[0],.5)
+        self.app.notebook.select(self.app.state_tab)
+        state=GameState(scene='投资选择',investment_kind='环境',investment_choices=[
+            Seen('120','长线利好','环境','待选',slot=0)])
+        self.app.render({'state':state,'matches':[],
+                         'advice':[('投资环境','主推荐：长线利好。'),*long_advice]})
+        self.root.update()
+        self.assertEqual(str(self.app.advice_tab),self.app.notebook.select())
+        self.assertEqual(0.0,self.app.advice_text.yview()[0])
+        self.assertIn('主推荐：长线利好',self.app.advice_text.get('1.0','5.0'))
+
+    def test_same_investment_keeps_manual_scroll_and_tab_even_with_partial_ocr(self):
+        from currency_war_assistant.models import GameState,Seen
+        self.app.controller.locked_title='';self.app.controller.locked=''
+        choices=[Seen(str(i),f'候选{i}','环境','待选',slot=i) for i in range(3)]
+        state=GameState(scene='投资选择',investment_kind='环境',investment_choices=choices)
+        result={'state':state,'matches':[],
+                'advice':[('投资环境','\n'.join(f'建议{i}' for i in range(100)))]}
+        self.app.render(result);self.root.update()
+        self.app.advice_text.yview_moveto(.6)
+        position=self.app.advice_text.yview()[0]
+        self.app.notebook.select(self.app.state_tab);self.root.update()
+        # A missing row followed by reappearance/reorder is still the same set.
+        with patch.object(self.app.advice_text,'delete',wraps=self.app.advice_text.delete) as delete:
+            for observed in (choices[:2],list(reversed(choices))):
+                state.investment_choices=observed
+                self.app.render(result);self.root.update()
+                self.assertEqual(str(self.app.state_tab),self.app.notebook.select())
+                self.assertAlmostEqual(position,self.app.advice_text.yview()[0],places=3)
+            delete.assert_not_called()
+
+    def test_investment_refresh_returns_to_new_recommendation(self):
+        from currency_war_assistant.models import GameState,Seen
+        self.app.controller.locked_title='';self.app.controller.locked=''
+        state=GameState(scene='投资选择',investment_kind='环境',investment_choices=[
+            Seen('old','旧候选','环境','待选',slot=0)])
+        advice=[('投资环境','\n'.join(f'建议{i}' for i in range(100)))]
+        result={'state':state,'matches':[],'advice':advice}
+        self.app.render(result);self.root.update()
+        self.app.advice_text.yview_moveto(1.0)
+        self.app.notebook.select(self.app.state_tab)
+        state.investment_choices=[Seen('new','新候选','环境','待选',slot=0)]
+        self.app.render(result);self.root.update()
+        self.assertEqual(str(self.app.advice_tab),self.app.notebook.select())
+        self.assertEqual(0.0,self.app.advice_text.yview()[0])
+
+    def test_encounter_rules_render_and_correction_names_are_editable(self):
+        from currency_war_assistant.models import GameState
+        from currency_war_assistant.strategy import Adviser
+        from currency_war_assistant.models import Catalog
+        state=GameState(scene='敌人情报', enemy_difficulty=120,
+                        debuffs=['侵蚀·第一位面强化','坠入陷阱','形单影只','忍无可忍'])
+        self.app.controller.locked_title='';self.app.controller.locked=''
+        self.app.controller.get_state.return_value=state
+        for language in ('zh','en','ja'):
+            self.app.language=language;self.app._rebuild_ui()
+            self.app.render({'state':state,'matches':[],
+                             'advice':Adviser(Catalog({}),language).advice(state,None)})
+            self.root.update()
+            self.assertIn('120',self.app.brief.get())
+            self.assertIn('忍无可忍',self.app.advice_text.get('1.0','end'))
+            self.assertIn('16%',self.app.advice_text.get('1.0','end'))
+            self.app.correct_encounter();self.root.update()
+            self.app.encounter_name_editor.delete('1.0','end')
+            self.app.encounter_name_editor.insert('1.0','忍无可忍')
+            self.app.encounter_save_button.invoke()
+            self.app.controller.save_encounter.assert_called_with('120','忍无可忍\n')
+            self.assertTrue(self.app.encounter_save_button.winfo_ismapped())
+            self.app.encounter_save_button.winfo_toplevel().destroy()
+
     def test_enum_selector_displays_translations_but_keeps_internal_values(self):
         import tkinter as tk
         from currency_war_assistant.models import GameState,Seen

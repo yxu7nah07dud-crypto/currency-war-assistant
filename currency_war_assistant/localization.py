@@ -3,7 +3,7 @@ LANGUAGE_OPTIONS=(("中文","zh"),("English","en"),("日本語","ja"))
 I18N={
     "zh": {
         "language":"语言", "settings":"设置", "theme":"主题", "dark_theme":"深色", "light_theme":"浅色", "save_on_close":"设置会在关闭助手时自动保存。", "topmost_label":"始终置顶", "title":"货币战争 · 实时助手", "fold":"折叠", "expand":"展开",
-        "brief":"普通 A8·30 · 等待选择游戏窗口", "status_idle":"本地识别，游戏操作由你完成。",
+        "brief":"普通 A8·待确认 · 等待选择游戏窗口", "status_idle":"本地识别，游戏操作由你完成。",
         "find_window":"找窗口", "start":"开始观察", "pause":"暂停", "analyze":"立即分析", "new_game":"新对局",
         "advice_tab":"现在怎么做", "guides_tab":"攻略与备选", "state_tab":"已识别", "name":"名称", "zone":"位置", "star":"星级", "source":"依据",
         "correct":"识别纠正 / 补充隐藏信息", "preview":"查看画面 / 校准区域 / 学习图标", "warning":"装备详情未打开、星级不清楚时，需要你确认。",
@@ -19,7 +19,7 @@ I18N={
     },
     "en": {
         "language":"Language", "settings":"Settings", "theme":"Theme", "dark_theme":"Dark", "light_theme":"Light", "save_on_close":"Settings are saved automatically when the assistant closes.", "topmost_label":"Always on top", "title":"Currency War · Live Assistant", "fold":"Collapse", "expand":"Expand",
-        "brief":"Normal A8·30 · Choose a game window", "status_idle":"Local recognition; you control the game.",
+        "brief":"Normal A8·Pending · Choose a game window", "status_idle":"Local recognition; you control the game.",
         "find_window":"Find window", "start":"Start observing", "pause":"Pause", "analyze":"Analyze now", "new_game":"New game",
         "advice_tab":"What to do now", "guides_tab":"Guides & alternatives", "state_tab":"Recognized", "name":"Name", "zone":"Position", "star":"Stars", "source":"Source",
         "correct":"Correct recognition / add hidden info", "preview":"View frame / calibrate / learn icon", "warning":"Confirm equipment and stars when details are not visible.",
@@ -35,7 +35,7 @@ I18N={
     },
     "ja": {
         "language":"言語", "settings":"設定", "theme":"テーマ", "dark_theme":"ダーク", "light_theme":"ライト", "save_on_close":"設定は助手を閉じると自動的に保存されます。", "topmost_label":"常に最前面", "title":"通貨戦争 · リアルタイム助手", "fold":"折りたたむ", "expand":"展開",
-        "brief":"通常 A8·30 · ゲーム画面を選択", "status_idle":"ローカル認識。ゲーム操作はあなたが行います。",
+        "brief":"通常 A8·要確認 · ゲーム画面を選択", "status_idle":"ローカル認識。ゲーム操作はあなたが行います。",
         "find_window":"画面を探す", "start":"観察開始", "pause":"一時停止", "analyze":"今すぐ分析", "new_game":"新しいゲーム",
         "advice_tab":"今すること", "guides_tab":"攻略と候補", "state_tab":"認識結果", "name":"名前", "zone":"位置", "star":"星", "source":"根拠",
         "correct":"認識を修正 / 非表示情報を追加", "preview":"画面表示 / 範囲調整 / アイコン学習", "warning":"装備詳細や星が見えない場合は確認してください。",
@@ -123,7 +123,7 @@ ENUM_KEYS={'角色':'role','装备':'equipment','策略':'strategy','环境':'en
            '前台':'front_zone','后台':'back_zone','备战':'bench','商店':'shop','库存':'inventory',
            '已装备':'equipped','已选':'selected','待选':'unselected','待确认':'pending',
            '手动':'manual_source','画面':'frame_source','文字':'ocr_source','官方图标':'official_icon_source',
-           '已确认图标':'learned_icon_source','库存图标':'inventory_icon_source',
+           '已确认图标':'learned_icon_source','库存图标':'inventory_icon_source','选择记录':'selection_source',
            '搜牌':'search_operation','升级':'level_operation'}
 
 
@@ -202,7 +202,7 @@ ADVICE={
  'investment_limits':('\n条件与限制：{limits}。','\nConditions and limits: {limits}.','\n条件と制限：{limits}。'),
  'investment_check_effect':('需核对完整效果','Check the complete effect','効果全文の確認が必要'),
  'investment_after_heading':('选后确认','Confirm after selection','選択後に確認'),
- 'investment_after':('三张卡都按待选记录。确认选择后，可在“已识别”中将实际选中的环境或策略改为“已选”；这会影响后续攻略、装备和经济建议。','All three cards remain unselected in the record. After choosing, mark the actual environment/strategy as Selected in Recognized; this affects later guide, equipment and economy advice.','3 枚とも未選択として記録します。選んだ環境・戦略を認識結果で選択済みに変更してください。その後の攻略・装備・経済の提案に反映します。'),
+ 'investment_after':('观察中，用鼠标点击游戏卡片，再点击游戏“确认”；页面离开后助手自动记录已选项。仅离开页面不会猜测选择。键盘/手柄选择或未捕获到点击时，用“难度 / 投资”补充实际选项，或展示含“已选投资环境”名称的游戏详情。','While observing, click a game card and then the game Confirm button. The assistant records it after the page closes; leaving alone never implies a choice. For keyboard/controller selection or missed clicks, confirm the actual option in Difficulty / investment, or show game details with an explicit selected-investment label.','観察中にゲームのカードをクリックし、ゲーム内の確認を押すと、画面移動後に選択を記録します。移動だけでは推測しません。キー・コントローラー操作やクリックの見逃しは「難易度 / 投資」で実際の選択を補うか、選択済み投資の名前が明示された詳細を表示してください。'),
  'investment_author_preferred':('{guide}作者优选','{guide}: author’s preferred choice','{guide}：作者の優先候補'),
  'investment_author_secondary':('{guide}作者次选','{guide}: author’s secondary choice','{guide}：作者の次点候補'),
  'investment_locked':('锁定攻略','Locked guide','固定攻略'),
@@ -222,7 +222,69 @@ ADVICE={
  'investment_unknown':('官方效果缺失，暂不能可靠比较','Official effect missing; cannot compare reliably','公式効果が不足しているため、確実な比較ができません'),
  'investment_other_missing':('该攻略仍有未满足前提，选到此项不代表其它前提已经满足','Other guide prerequisites remain missing; choosing this does not satisfy them','攻略には未達の前提が残っています。この候補の選択で他の前提まで満たすわけではありません'),
  'stars_value':('{count}星','{count} stars','星 {count}'),
+ 'context_button':('难度 / 投资','Difficulty / investment','難易度 / 投資'),
+ 'a8_difficulty':('A8 难度','A8 difficulty','A8 難易度'),
+ 'difficulty_note':('输入 A8 后面的数字，例如 50。手动值在重启后保留，直到点击“恢复自动”或“新对局”；与敌人难度分别设置。','Enter the number after A8, such as 50. A manual value survives restart until Auto detection or New game. Enemy difficulty is a separate setting.','A8 の後の数値（例：50）を入力。手動値は再起動後も保持し、自動認識か新しい対局で解除。敵難易度とは別の設定です。'),
+ 'difficulty_auto':('恢复自动','Auto detection','自動認識'),
+ 'difficulty_invalid':('A8 难度请输入 1–99 的整数，或留空恢复自动。','Enter an A8 difficulty from 1–99, or leave blank for automatic detection.','A8 難易度は1～99の整数で入力するか、空欄で自動認識に戻してください。'),
+ 'chosen_environment':('已选环境：{name}','Selected environment: {name}','選択済み環境：{name}'),
+ 'choose_actual':('我已选择：{name}','I selected: {name}','選択済み：{name}'),
+ 'confirm_environment':('确认已选环境','Confirm environment','選択済み環境を確認'),
+ 'environment_author_match':('已选环境匹配作者推荐：{name}','Selected environment matches the author’s list: {name}','選択済み環境が作者の推奨と一致：{name}'),
+ 'environment_trait_match':('已选环境 {name} 的刷新加成关联目标角色：{roles}','Selected environment {name} improves refresh access to target roles: {roles}','選択済み環境 {name} の更新確率上昇が目標キャラに関連：{roles}'),
+ 'environment_no_match':('已选环境 {name} 的羁绊刷新收益未匹配该阵容，仅供参考','The trait refresh benefit from {name} does not match this lineup; reference only','選択済み環境 {name} の特性更新効果が編成に一致しないため参考のみ'),
+ 'environment_not_listed':('当前环境 {name} 不在作者推荐列表；推荐列表不是必需条件，仍需核对作者正文','Environment {name} is outside the author’s recommendation list; that list is optional, so check explicit prerequisites','環境 {name} は作者の推奨一覧外。一覧は必須条件ではないため本文の前提を確認してください'),
+ 'final_owned':('目标阵容已持有：{names}','Owned roles in the target lineup: {names}','目標編成で所持済み：{names}'),
+ 'guide_reference':('候选参考 · 待核对','Reference · needs checking','参考候補 · 要確認'),
+ 'guide_basis':('匹配依据 · 已选环境：{environment} · 已确认持有：{roles}','Matching basis · environment: {environment} · confirmed owned: {roles}','照合情報 · 環境：{environment} · 確認済み所持：{roles}'),
+ 'guide_owned_missing':('持有角色尚未识别，当前仅按环境筛选候选，不显示主推荐；可在“识别纠正”补充。','Owned roles are not recognized. These are environment-based references, not a top recommendation. Add owned roles using Correct recognition.','所持キャラ未認識のため環境に基づく参考のみ。主推奨は表示せず、認識修正から所持を補足できます。'),
+ 'guide_no_recommendation':('暂未找到同时适合已选环境和持有角色的可靠攻略；以下候选需核对，不建议照搬。','No reliable guide currently matches both the selected environment and owned roles. Check the references below before following them.','環境と所持の両方に合う確実な攻略がありません。以下は参考候補のため確認が必要です。'),
+ 'portraits_loaded':('已加载 {count} 个本机角色头像，准备阶段自动识别备战角色。','Loaded {count} local portraits for automatic bench recognition during preparation.','ローカルのキャラ画像 {count} 件を読み込み、準備画面の控えを自動認識します。'),
+ 'selection_note':('观察中点击游戏卡片，再点游戏“确认”，离开该页后自动记录。下方可补充实际选择；不会自动把推荐项当成已选。','While observing, click a game card, then the game Confirm button. Selection is recorded after leaving the page. Use the buttons below to correct the actual choice; recommendations are never assumed selected.','観察中にカードとゲーム内の確認をクリックすると、画面移動後に記録します。実際の選択は下のボタンで補足できます。推奨候補を選択済みとはみなしません。'),
+ 'selection_source':('选择记录','Game selection','選択記録'),
+ 'selected_environment_note':('已作为已选环境参与攻略前提匹配。选择已确认，但累计次数、奖励发放和条件达成仍以游戏为准，不把条件奖励直接加入金币或库存。','This confirmed environment is used for guide prerequisites. Counts, reward delivery and trigger completion follow the game; conditional rewards are not added to recorded gold or inventory.','攻略の前提照合に選択済み環境として使用します。累計・報酬・発動はゲームで確認し、条件付き報酬を所持金・在庫へ自動加算しません。'),
 }
 for key,values in ADVICE.items():
     for language,value in zip(('zh','en','ja'),values):I18N[language][key]=value
+
+from .encounter_text import TEXT as ENCOUNTER_TEXT
+for key, values in ENCOUNTER_TEXT.items():
+    for language, value in zip(('zh', 'en', 'ja'), values):
+        I18N[language][key] = value
+
+SEASON_TEXT = {
+    'rank_label': ('职级 / 档位', 'Rank / tier', '職級 / 段階'),
+    'rank_pending': ('职级待确认', 'Rank unconfirmed', '職級未確認'),
+    'rank_note': ('输入职级和档位，例如 A8·12。留空恢复自动，敌人难度请单独纠正。', 'Enter a rank and tier, e.g. A8·12. Clear to resume detection. Enemy difficulty is separate.', '職級と段階を入力（例 A8·12）。空欄で自動認識へ。敵難易度は別に設定します。'),
+    'rank_invalid': ('请输入本赛季有效的 A0–A8 职级及档位。A8 为 1–20 档。', 'Enter a valid A0–A8 rank and tier for this season. A8 tiers are 1–20.', '今シーズンの有効なA0～A8の職級・段階を入力してください。A8は1～20です。'),
+    'standard_only': ('已识别到超频博弈。当前规则和攻略适用于标准博弈。', 'Overclock Gambit detected. Current rules and guides cover Standard Gambit.', 'オーバークロックを検出。現在のルールと攻略は標準モード用です。'),
+    'special_core': ('核心包含普通刷新表外的费用。优先查看该角色的取得条件，避免按常规搜牌预算规划。', 'A core role falls outside normal refresh weights. Check its acquisition rule before budgeting refreshes.', '主力に通常更新表の対象外の社員がいます。更新予算を決める前に入手条件を確認してください。'),
+    'aha_core': ('7 费星神★阿哈是升格结果。获取阿哈可积攒幻月之力，升格条件与幻月游戏或欢愉员工的总星级有关。按当前羁绊和角色面板确认进度。', 'The 7-cost Aeon ★ Aha is an ascension. Obtaining Aha builds Lunar power, and ascension involves total stars in Moon Game or Elation. Check your trait and employee panels for progress.', '7コストの星神★アッハは昇格形態です。アッハの入手で力を貯め、昇格には幻月ゲームまたは愉悦の総星数が関係します。進捗は特性と社員画面で確認してください。'),
+    'shop_table': ('当前等级基础商店权重', 'Base shop weights at this level', '現在レベルの基本ショップ比率'),
+    'shop_snapshot': ('1 至 5 费依次为 {weights}。等级容量 {capacity}，本级升下一级需 {xp} 经验。特殊来源及投资加成另计。', 'Costs 1–5: {weights}. Level capacity {capacity}, EXP to next level {xp}. Special sources and investment effects are separate.', '1～5コストの順に {weights}。配置上限 {capacity}、次Lv.への経験値 {xp}。特殊入手・投資効果は別計算。'),
+    'season_button': ('奇遇 / 主角光环', 'Escapade / Plot Armor', '奇遇 / 主役補正'),
+    'voyage_context': ('本局奇遇 · {name}', 'Run Escapade · {name}', '今回の奇遇 · {name}'),
+    'voyage_effect_missing': ('已读到伙伴。请展开游戏奇遇效果，或手动补录实际效果。', 'Partner detected. Open the in-game effect details or enter the effect manually.', '仲間を確認しました。ゲームの効果詳細を開くか、手動で補足してください。'),
+    'voyage_label': ('已确认奇遇', 'Confirmed Escapade', '確認済みの奇遇'),
+    'voyage_variant': ('实际奇遇效果', 'Actual Escapade effect', '実際の奇遇効果'),
+    'voyage_protection': ('按对应位面和触发条件规划保命，仍应准备首领战前可上场的补强。', 'Plan survival around the stated plane and trigger. Keep upgrades ready for the boss.', '対象ステージと発動条件に合わせて、ボス前に即戦力を用意してください。'),
+    'voyage_roster': ('先看当前员工的升星或羁绊收益，再决定是否留出备战格和刷新预算。', 'Check star and trait gains before allocating bench space or refresh gold.', '星上げと特性の利益を確認し、控え枠と更新予算を決めてください。'),
+    'voyage_choices': ('到对应节点再按实际出现的选项比较，预留合适的员工、装备或经济。', 'Compare the actual offers when you reach the node and reserve useful roles, gear or gold.', '該当ノードで実際の候補を比較し、有効な社員・装備・コインを確保してください。'),
+    'voyage_route': ('核对节点实际顺序，再决定什么时候升级、备装备或留出金币。', 'Check the actual node order before scheduling upgrades, gear and gold.', 'ノードの順序を確認し、レベル上げ・装備・貯金の時期を決めてください。'),
+    'voyage_shop': ('进入影响商店或策略的节点前，先确定要买的补强和可用金币。', 'Choose priority upgrades and a budget before entering an affected shop or strategy node.', '影響するショップ・戦略ノードに入る前に、補強と予算を決めてください。'),
+    'voyage_supply': ('根据预计补给调整装备分配和备战位，领取后再按实际库存更新。', 'Plan gear and bench space for the expected supplies and update from actual inventory after claiming.', '補給に合わせて装備と控え枠を調整し、取得後に実際の在庫を確認してください。'),
+    'spot_heading': ('主角光环选择', 'Plot Armor selection', '主役補正の選択'),
+    'spot_compare': ('按已上场员工与光环适用范围比较。请在游戏内确认实际选项。', 'Compare available effects with deployed employees. Confirm the actual choice in game.', '配置済み社員と適用範囲を比較します。実際の選択をゲーム内で確定してください。'),
+    'spot_missing': ('请让游戏里的光环名称和员工名可见，或手动补录已获得的光环。', 'Expose the effect and employee names in game or enter the confirmed Plot Armor.', '効果名と社員名を表示するか、確定した主役補正を手動で入力してください。'),
+    'spot_fit': ('配置标注的适用员工：{names}', 'Listed compatible employees: {names}', '設定上の適用社員：{names}'),
+    'spot_extra_difficulty': ('配置标注敌人难度增加 {value}，最终以本局显示为准。', 'The table lists enemy difficulty +{value}. Check the final in-game value.', '設定表では敵難易度+{value}。最終値はゲーム内で確認してください。'),
+    'spot_preferred': ('优先比较 · {name}', 'Compare first · {name}', '優先比較 · {name}'),
+    'spot_selected': ('第{plane}位面 · {name} · {effect}', 'Plane {plane} · {name} · {effect}', '第{plane}ステージ · {name} · {effect}'),
+    'spot_plane': ('位面（1 / 2）', 'Plane (1 / 2)', 'ステージ（1 / 2）'),
+    'spot_effect': ('实际光环', 'Actual Plot Armor', '実際の主役補正'),
+    'spot_recipient': ('获得的员工', 'Recipient', '取得した社員'),
+}
+for key, values in SEASON_TEXT.items():
+    for language, value in zip(('zh', 'en', 'ja'), values):
+        I18N[language][key] = value
 

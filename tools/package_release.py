@@ -16,7 +16,9 @@ sys.path.insert(0,str(root))
 from currency_war_assistant import __version__
 from tools.release_licenses import collect_license, validate_manifest, include_distribution
 from PyInstaller.archive.readers import CArchiveReader
-release=root/'outputs/CurrencyWarAssistant'
+release=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else root/'dist/CurrencyWarAssistant'
+if not release.is_relative_to(root) or release.name!='CurrencyWarAssistant':
+    raise ValueError('Build directory must be a CurrencyWarAssistant folder inside this project')
 program=release/'CurrencyWarAssistant.exe'
 if not program.exists():raise RuntimeError('Please build CurrencyWarAssistant.exe first')
 capture_files=release/'_internal'/'windows_capture'

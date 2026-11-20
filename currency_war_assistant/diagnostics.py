@@ -11,6 +11,36 @@ import traceback
 from . import __version__
 
 
+def run_encounter_test(output: Path, image_path: Path):
+    """Replay a supplied encounter image inside either source or frozen build."""
+    from .models import Catalog
+    from .paths import write_json
+    from .vision import Recognizer
+    from .strategy import Adviser
+    from .encounter import rule_id
+    from .season import ACTIVE
+    import cv2
+    import numpy as np
+    report = {'version': __version__, 'frozen': bool(getattr(sys, 'frozen', False)), 'ok': False}
+    try:
+        image = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError('Screenshot could not be loaded')
+        catalog = Catalog({}, season=ACTIVE)
+        recognizer = Recognizer(catalog, output.parent / 'encounter-check-data')
+        started = time.monotonic()
+        state, _ = recognizer.analyze(image)
+        report.update(state=state.snapshot(), advice=Adviser(catalog).advice(state, None),
+                      rule_ids=[rule_id(name, True) for name in state.debuffs],
+                      seconds=round(time.monotonic() - started, 2))
+        report['ok'] = (state.scene == '敌人情报' and state.enemy_difficulty is not None
+                        and bool(state.debuffs) and all(report['rule_ids']))
+    except Exception:
+        report['error'] = traceback.format_exc()
+    write_json(output, report)
+    return 0 if report['ok'] else 1
+
+
 def run_investment_test(output: Path, image_path: Path, config_path: Path):
     """Opt-in offline OCR replay of a user-supplied investment screenshot."""
     from .models import Catalog
@@ -61,6 +91,91 @@ def run_guide_test(output: Path, share_text: str):
         report['error']=traceback.format_exc()
     finally:
         controller.close()
+        write_json(output,report)
+    return 0 if report['ok'] else 1
+
+
+def run_matching_test(output: Path,image_path: Path,data: Path):
+    """Offline matching replay; use saved environment, never saved owned roles."""
+    from .models import Catalog,Seen
+    from .paths import read_json,write_json
+    from .vision import Recognizer
+    from .strategy import Adviser,role_ids
+    import cv2
+    import numpy as np
+    report={'version':__version__,'frozen':bool(getattr(sys,'frozen',False)),'ok':False,'replays':[]}
+    try:
+        catalog=Catalog(read_json(data/'cache/config.json',{}))
+        guides=read_json(data/'cache/guides.json',{}).get('guides',[])
+        saved=read_json(data/'last_observation.json',{}).get('state',{}).get('environment')
+        recognizer=Recognizer(catalog,data);adviser=Adviser(catalog)
+        image=cv2.imdecode(np.fromfile(image_path,dtype=np.uint8),cv2.IMREAD_COLOR)
+        if image is None:raise ValueError('Screenshot could not be loaded')
+        for factor in (1,.5):
+            frame=cv2.resize(image,None,fx=factor,fy=factor) if factor<1 else image
+            started=time.monotonic();state,_=recognizer.analyze(frame)
+            if saved:state.environment=Seen(**saved)
+            matches=adviser.rank(guides,state)
+            report['replays'].append({'factor':factor,'state':state.snapshot(),
+                'matches':[{'id':m.guide['id'],'title':m.guide.get('title',''),'score':round(m.score,2),
+                            'provisional':m.provisional,'environment_fit':m.environment_fit,'blocked':m.blocked,
+                            'reasons':m.reasons,'owned_overlap':sorted(state.owned_ids()&(role_ids(m.guide)|role_ids(m.guide,state.stage())))}
+                           for m in matches],
+                'seconds':round(time.monotonic()-started,2)})
+        report['ok']=all(r['state']['roles'] and r['matches'] and not r['matches'][0]['provisional']
+                         and r['matches'][0]['environment_fit']>=2 and r['matches'][0]['owned_overlap'] for r in report['replays'])
+    except Exception:
+        report['error']=traceback.format_exc()
+    write_json(output,report)
+    return 0 if report['ok'] else 1
+
+
+def run_context_test(output: Path,image_path: Path,config_path: Path):
+    """Replay a resume image and simulate selection events without sending input."""
+    from .models import Catalog,GameState,Seen
+    from .paths import read_json,write_json
+    from .selection import InvestmentSelection
+    from .vision import Recognizer,StateTracker
+    from .controller import Controller
+    import cv2
+    import numpy as np
+    report={'version':__version__,'frozen':bool(getattr(sys,'frozen',False)),'ok':False}
+    controllers=[]
+    try:
+        catalog=Catalog(read_json(config_path,{}))
+        image=cv2.imdecode(np.fromfile(image_path,dtype=np.uint8),cv2.IMREAD_COLOR)
+        if image is None:raise ValueError('Screenshot could not be loaded')
+        data=output.parent/'context-check-data'
+        started=time.monotonic()
+        state,_=Recognizer(catalog,data).analyze(image)
+        report['state']=state.snapshot()
+        report['seconds']=round(time.monotonic()-started,2)
+        from .strategy import Adviser
+        report['advice']=Adviser(catalog).advice(state,None)
+        reader=InvestmentSelection()
+        options=[Seen(str(index),f'Test {index}','环境','待选',slot=index,confidence=1) for index in range(3)]
+        page=GameState(scene='投资选择',investment_choices=options)
+        rows=[{'text':'确认','box':(950,970,1170,1010),'confidence':1}]
+        reader.observe(page,rows,(1080,1920,3),1,now=1)
+        reader.click((.5,.5),now=2);reader.click((.55,.916),now=3)
+        picked=reader.observe(GameState(scene='准备'),[],(1080,1920,3),1,now=4)
+        tracker=StateTracker();tracker.merge(GameState(scene='准备',environment=picked))
+        report['simulated_selection']={'id':tracker.state.environment.id,'zone':tracker.state.environment.zone,
+                                       'sent_input':False}
+        first=Controller(data/'manual');controllers.append(first);first.save_difficulty('A8·12');first.close()
+        second=Controller(data/'manual');controllers.append(second)
+        report['manual_restart']=second.get_state().difficulty
+        from .season import PENDING_RANK
+        second.new_game();report['new_game_clears']=second.get_state().difficulty==PENDING_RANK
+        image_ok=(state.difficulty=='普通 A8·50' and state.scene=='对局菜单') or (
+                    state.scene=='准备' and state.environment and state.environment.zone=='已选')
+        report['ok']=bool(image_ok
+                      and picked.id=='1' and picked.zone=='已选'
+                      and report['manual_restart']=='A8·12' and report['new_game_clears'])
+    except Exception:
+        report['error']=traceback.format_exc()
+    finally:
+        for controller in controllers:controller.close()
         write_json(output,report)
     return 0 if report['ok'] else 1
 

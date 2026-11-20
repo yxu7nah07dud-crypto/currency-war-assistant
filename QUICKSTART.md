@@ -1,5 +1,7 @@
 # Quick start / 快速开始 / クイックスタート
 
+**v2.0.0 · 4.7 入画奇航 / Voyage Into the Canvas · Standard Gambit**
+
 ## 中文
 
 1. 解压整个文件夹，不要单独移动可执行文件。
@@ -33,6 +35,12 @@
 6. 枠なし表示では、見出しで移動、右下の三角でサイズ変更、**−** で最小化、**×** で終了。**Esc** で枠を戻せます。
 7. 旧版でキャプチャモジュールが不足している場合は終了し、新版全体を展開して実行ファイルの隣に `_internal` を保ってください。旧 `CurrencyWarAssistantData` を新フォルダに移せば設定とキャッシュを引き継げます。
 
+## 敌人 / Enemy / 敵 DEBUFF
+
+- 中文：敌人情报页保持底部难度与词缀可见。“现在怎么做”自动按规则分析，不需要填写效果。名称或数字识别错误时，使用“识别纠正 → 敌人 / DEBUFF”。本局条件持续保留，“新对局”清除。
+- English: Keep the opponent screen's difficulty/affixes visible. **What to do now** analyzes their rules automatically; no effect entry is needed. Correct names/numbers with **Correct recognition → Enemy / DEBUFF**. **New game** clears the conditions.
+- 日本語：敵情報の難易度・特性を表示すると「今すること」で自動分析。効果の入力は不要です。名前・数値の誤認識は「認識修正 → 敵 / DEBUFF」で修正。「新しい対局」で条件を消去します。
+
 ## 攻略查找 / Guide lookup / 攻略検索
 
 - 中文：攻略码不在缓存时会自动联网查找；可用“读取剪贴板”导入含标题的完整分享文字，找到后自动锁定。页脚显示公开推荐的同步进度；“更新攻略”可继续中断的同步。
@@ -41,17 +49,23 @@
 
 ## 投资选择 / Investment choices / 投資選択
 
-- 中文：三选一时在“现在怎么做”查看推荐与另外两项的比较。缺少选项时在“已识别”补充待选环境/策略；刷新后会清除旧选项。实际选择后手动确认“已选”，不会把待选自动记为已获得。
-- English: On a three-choice screen, read the recommendation and alternative comparisons in **What to do now**. Add missing offered environments/strategies in **Recognized**. Refresh clears old choices. Mark the option you actually picked as selected; offered rewards are never recorded as owned.
-- 日本語：3択では **今すること** で候補比較を確認します。不足する未選択の環境・戦略は **認識済み** で追加してください。更新後は古い候補を消去します。実際に選んだ項目を選択済みにしてください。候補の報酬を自動で所持済みにはしません。
+- 中文：三选一时在“现在怎么做”查看比较。观察中点击游戏卡片，再点游戏“确认”，离页后自动记录；准备阶段展示已选环境详情也可自动读取。主界面显示“已选环境”。键盘/手柄操作或漏读时展示详情，或在“难度 / 投资”确认实际选项。该入口也可填写职级和档位（如 A8·12），重启保留手动值，“恢复自动”或“新对局”清除。推荐项和候选奖励不会直接当作已获得。
+- English: Read comparisons in **What to do now**. While observing, click a game card and the game's Confirm button; selection is recorded after leaving. Showing the owned environment tooltip during preparation also identifies it. The header shows the selected environment. For keyboard/controller choices or missed clicks, show the tooltip or confirm in **Difficulty / investment**. This also accepts rank and tier, e.g. A8·12; manual values survive restart until Auto detection or New game. Recommendations and offered rewards are never assumed owned.
+- 日本語：**今すること** で比較を確認。観察中にゲームのカードと確認をクリックすると移動後に記録し、準備画面の選択済み環境詳細からも認識します。見出しに環境名を表示。キー・コントローラー操作や見逃し時は詳細表示か **難易度 / 投資** で補足します。職級と段階（例 A8·12）も入力でき、再起動後も保持。自動認識か新しい対局で解除します。推奨や候補の報酬を所持済みにはしません。
+
+## 奇遇 / Escapade / 奇遇 と Plot Armor
+
+- 中文：开局让奇遇伙伴与效果可见。首领战前看光环比较。可在“难度 / 投资 → 奇遇 / 主角光环”补录实际效果与获得者。
+- English: Show the partner and effect at the start. Review armor before the boss. Use **Difficulty / investment → Escapade / Plot Armor** to enter the actual effect and recipient.
+- 日本語：開幕時に奇遇の仲間と効果を表示。首領戦前に主役補正を比較。「難易度 / 投資 → 奇遇 / 主役補正」で効果と取得社員を補足。
 
 ## 公开版识别 / Public recognition / 公開版の認識
 
-中文：公开版无图标模板。商店标题可用 OCR；持有角色、星级和库存装备需识别纠正或本机学习图标。
+中文：公开包不含游戏图标；配置中的官方角色头像会缓存到本机，自动匹配备战格子和前后台图像。星级、遮挡、同头像形态及库存需核对或纠正。攻略页顶部显示实际采用的持有角色与环境；资料不足时只列参考候选。
 
-English: No icon templates are bundled. Shop titles use OCR; owned roles, stars and inventory equipment need manual correction or locally learned icons.
+English: Game icons are not bundled; official role portraits are cached locally for bench and front/back matching. Check stars, obscured or ambiguous forms and inventory. Guide headers show the owned-role/environment basis; insufficient information produces references only.
 
-日本語：アイコンテンプレートは同梱していません。ショップ名は OCR、所持キャラクター・星数・装備は認識修正またはローカル学習を利用してください。
+日本語：ゲーム画像は同梱せず、公式キャラ画像を本機に保存して控え・前後衛を照合。星・遮蔽・同画像の形態・装備は確認が必要です。攻略先頭に所持と環境を表示し、情報不足は参考候補とします。
 
 中文：仅识别简体中文游戏客户端；助手可切换中/英/日语言，官方名称与效果保持原文。
 

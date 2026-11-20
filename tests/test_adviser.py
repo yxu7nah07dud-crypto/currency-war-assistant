@@ -177,6 +177,32 @@ class AdviserTests(unittest.TestCase):
         state = recognizer.parse_rows(scaled, (540, 960, 3))
         self.assertEqual((88, 14), (state.hp, state.gold))
 
+    def test_a8_difficulty_uses_game_banner_value_not_assistant_default(self):
+        recognizer = object.__new__(Recognizer)
+        rows = [{"text": t, "confidence": .99, "box": b} for t, b in [
+            ("A8 财富造物主", (88, 300, 360, 340)),
+            ("50", (246, 382, 330, 465)),
+            ("49", (246, 595, 330, 650)),
+            ("普通 A8·30", (980, 170, 1240, 205)),
+        ]]
+        state = recognizer.parse_rows(rows, (1080, 1920, 3))
+        self.assertEqual("普通 A8·50", state.difficulty)
+
+        rows[0]["text"] = "A8财富造物主"
+        state = recognizer.parse_rows(rows, (1080, 1920, 3))
+        self.assertEqual("普通 A8·50", state.difficulty)
+
+    def test_a8_difficulty_stays_pending_without_banner(self):
+        recognizer = object.__new__(Recognizer)
+        rows = [{"text": "普通 A8·30", "confidence": .99, "box": (980, 170, 1240, 205)}]
+        state = recognizer.parse_rows(rows, (1080, 1920, 3))
+        self.assertEqual("普通 A8·待确认", state.difficulty)
+
+        tracker = StateTracker()
+        tracker.merge(GameState(difficulty="普通 A8·50"))
+        tracker.merge(GameState())
+        self.assertEqual("普通 A8·50", tracker.state.difficulty)
+
     def test_offline_cache_uses_only_user_cache(self):
         directory = cache_dir("offline")
         client = GuideClient(directory)

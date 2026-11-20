@@ -12,12 +12,15 @@ import cv2
 
 from .api import GuideClient
 from .capture import WindowCapture, CaptureUnavailable
-from .models import Catalog
+from .models import Catalog, Seen
 from .paths import write_json,read_json
 from .localization import translate
 from .strategy import Adviser
 from .vision import Recognizer, StateTracker
 from .share import normalize_share_code, find_guide_by_code
+from .selection import InvestmentSelection,game_pointer
+from .season import ACTIVE, DIRECTORY, PENDING_RANK, rank_label
+from .season_data import DIVISIONS, PARTNERS
 
 
 def frames_stable(first,second):
@@ -32,15 +35,22 @@ class Controller:
     def __init__(self,data):
         self.data=data
         self.events=queue.Queue()
-        self.client=GuideClient(data / "cache")
+        self.profile=data / DIRECTORY
+        self.client=GuideClient(self.profile / "cache", season=ACTIVE)
         # The public source distribution contains no copied game/wiki database.
         # The catalog is populated from the read-only public endpoint after startup.
-        self.catalog=Catalog(self.client.cached_config(),{})
+        self.catalog=Catalog(self.client.cached_config(), season=ACTIVE)
         self.guides=self.client.cached_guides()
         self.language=read_json(data / "settings.json",{}).get("language","zh")
         self.adviser=Adviser(self.catalog,self.language)
         self.capture=WindowCapture()
-        self.tracker=StateTracker()
+        self.tracker=StateTracker(difficulty=PENDING_RANK)
+        self.selection=InvestmentSelection()
+        saved=read_json(self.profile/'difficulty.json',{}) or {}
+        rank, ordinal = saved.get('rank'), saved.get('ordinal')
+        if rank in DIVISIONS and (ordinal is None or ordinal in DIVISIONS[rank]):
+            self.tracker.state.difficulty=rank_label(rank, ordinal)
+            self.tracker.state.manual_fields.add('difficulty')
         self.recognizer=None
         self.image=None
         self.rows=[]
@@ -58,20 +68,26 @@ class Controller:
         self._signature=None
         self._enrich_busy=set()
         self._enrich_at={}
+        self._portraits_busy=False
         self._mutex=threading.RLock()
         self.times=deque(maxlen=20)
         self.last_result={}
         threading.Thread(target=self._loop,daemon=True,name="local-observer").start()
+        threading.Thread(target=self._selection_loop,daemon=True,name="investment-selection").start()
 
     def emit(self,kind,value):
         self.events.put((kind,value))
 
     def initialize(self):
         self.refresh_guides()
+        self.refresh_portraits()
 
     def start(self,window):
         self.running=False
+        previous = self.capture.window
         self.capture.start(window)
+        if previous and previous.hwnd != window.hwnd:
+            self.new_game(keep_rank=True)
         self.running=True
         self._wake.set()
         self.emit("status","正在初始化本地识别…")
@@ -172,11 +188,32 @@ class Controller:
     def _update_catalog(self,config):
         if config:
             with self._mutex:
-                catalog=Catalog(config,self.catalog.knowledge)
+                catalog=Catalog(config,self.catalog.knowledge, season=ACTIVE)
                 self.catalog=catalog
                 self.adviser=Adviser(catalog,self.language)
                 if self.recognizer:
                     self.recognizer.catalog=catalog
+            self.refresh_portraits()
+
+    def refresh_portraits(self):
+        from .portraits import sync_portraits,PortraitBank
+        with self._mutex:
+            if self._portraits_busy or not self.catalog.roles or self.closing:return
+            self._portraits_busy=True;catalog=self.catalog
+        def worker():
+            try:
+                count=sync_portraits(self.profile,catalog)
+                bank=PortraitBank(self.profile)
+                with self._mutex:
+                    if self.recognizer:self.recognizer.matcher.set_portraits(bank)
+                if not self.closing:
+                    self.emit('status',translate(self.language,'portraits_loaded',count=count))
+                    self._wake.set()
+            except Exception:
+                logging.exception('local public portrait cache refresh failed')
+            finally:
+                with self._mutex:self._portraits_busy=False
+        threading.Thread(target=worker,daemon=True,name='public-portrait-cache').start()
 
     def refresh_guides(self,force=False):
         if self._network_busy or (not force and time.monotonic()-self._network_at<300):
@@ -215,7 +252,7 @@ class Controller:
         with self._mutex:
             state=self.tracker.state
             self.matches=self.adviser.rank(self.guides,state,self.locked)
-            self.last_result={"state":state.snapshot(),"matches":[{"id":m.guide["id"],"score":round(m.score,1),"blocked":m.blocked} for m in self.matches],"locked_guide":{"id":self.locked,"code":self.locked_code,"title":self.locked_title} if self.locked else None,"processing_seconds":round(self.times[-1],2) if self.times else None,"guide_updated_at":self.client.updated_at}
+            self.last_result={"state":state.snapshot(),"matches":[{"id":m.guide["id"],"score":round(m.score,1),"blocked":m.blocked,'provisional':m.provisional,'environment_fit':m.environment_fit} for m in self.matches],"locked_guide":{"id":self.locked,"code":self.locked_code,"title":self.locked_title} if self.locked else None,"processing_seconds":round(self.times[-1],2) if self.times else None,"guide_updated_at":self.client.updated_at}
             advice=self.adviser.advice(state,self.matches[0] if self.matches else None,locked=bool(self.locked))
             self.last_result["advice"]=advice
             if self.locked and not any(m.guide["id"]==self.locked for m in self.matches):
@@ -261,6 +298,87 @@ class Controller:
         with self._mutex:
             return self.tracker.state.snapshot()
 
+    def save_difficulty(self,value):
+        import re
+        text=str(value).strip().upper()
+        if text.isdecimal():
+            text = f'A8·{text}'
+        match = re.fullmatch(r'(A[0-8])(?:[.·\s-]+([0-9]{1,2}))?', text)
+        if text and not match:
+            raise ValueError(translate(self.language,'rank_invalid'))
+        rank = match[1] if match else None
+        ordinal = int(match[2]) if match and match[2] else None
+        if rank and ordinal is not None and ordinal not in DIVISIONS[rank]:
+            raise ValueError(translate(self.language,'rank_invalid'))
+        with self._mutex:
+            write_json(self.profile/'difficulty.json',{'rank':rank, 'ordinal':ordinal})
+            state=self.tracker.state
+            state.difficulty=rank_label(rank,ordinal) if rank else PENDING_RANK
+            if rank is None:state.manual_fields.discard('difficulty')
+            else:state.manual_fields.add('difficulty')
+        self.recalculate(enrich=False)
+
+    def investment_options(self):
+        with self._mutex:
+            return deepcopy(self.tracker.state.investment_choices or list(self.selection.choices.values()))
+
+    def new_game(self, keep_rank=False):
+        with self._mutex:
+            old = self.tracker.state
+            self.tracker.reset();self.selection=InvestmentSelection();self._signature=None
+            if keep_rank and 'difficulty' in old.manual_fields:
+                self.tracker.state.difficulty=old.difficulty
+                self.tracker.state.manual_fields.add('difficulty')
+            elif not keep_rank:
+                write_json(self.profile/'difficulty.json',{'rank':None,'ordinal':None})
+        self.clear_guide_lock()
+
+    def save_voyage(self, name, identifier=""):
+        with self._mutex:
+            if name and (name not in PARTNERS or identifier and
+                         identifier not in {str(i) for i in PARTNERS[name]}):
+                raise ValueError(translate(self.language, "invalid_name"))
+            state = self.tracker.state
+            state.voyage = Seen(identifier, name, "奇遇", "已选", confidence=1, source="手动") if name else None
+            state.manual_fields.add("voyage")
+        self.recalculate(enrich=False)
+
+    def save_spotlight(self, plane, identifier, target):
+        with self._mutex:
+            effect = self.catalog.spotlights.get(identifier)
+            if plane not in (1, 2) or (identifier and (not effect or target not in self.catalog.roles)):
+                raise ValueError(translate(self.language, "invalid_name"))
+            state = self.tracker.state
+            if effect:
+                state.spotlights[plane] = Seen(identifier, effect["name"], "主角光环", "已选",
+                                               confidence=1, source="手动", equipped_to=target, slot=plane)
+            else:
+                state.spotlights.pop(plane, None)
+            state.manual_fields.add(f"spotlight_{plane}")
+        self.recalculate(enrich=False)
+
+    def _selection_loop(self):
+        previous=None
+        while not self.closing:
+            with self._mutex:
+                window=self.capture.window
+                active=self.running and self.selection.active and window and not self.capture.closed
+            if not active:
+                previous=None
+                time.sleep(.04)
+                continue
+            try:
+                down,point=game_pointer(window.hwnd)
+                if down and previous is False:
+                    with self._mutex:
+                        if self.selection.hwnd==window.hwnd:self.selection.click(point)
+                previous=down
+            except Exception:
+                # Display/manual confirmation remains available when Windows
+                # cannot expose a pointer (for example a secure desktop).
+                previous=None
+            time.sleep(.025)
+
     def save_numbers(self,values):
         import re
         parsed={}
@@ -279,6 +397,27 @@ class Controller:
             self.tracker.state.manual_fields.update(parsed)
             self.tracker.state.warning="经济数值为手动纠正；再次读取到可靠数值或进入新阶段后会更新。"
         self.recalculate()
+
+    def save_encounter(self, difficulty, names):
+        """Correct recognized conditions atomically; effects stay rule-derived."""
+        from .encounter import canonical_debuff
+        from .localization import translate
+        text = str(difficulty).strip()
+        try:
+            number = int(text) if text else None
+            if number is not None and not 0 <= number <= 300:
+                raise ValueError()
+        except ValueError:
+            raise ValueError(translate(self.language, 'enc_invalid_difficulty')) from None
+        raw = [line.strip() for line in str(names).splitlines() if line.strip()]
+        if len(raw) > 12 or any(len(name) > 40 for name in raw):
+            raise ValueError(translate(self.language, 'enc_invalid_debuffs'))
+        debuffs = list(dict.fromkeys(canonical_debuff(name, bool(getattr(getattr(self,'catalog',None),'season',None))) for name in raw))
+        with self._mutex:
+            self.tracker.state.enemy_difficulty = number
+            self.tracker.state.debuffs = debuffs
+            self.tracker.state.manual_fields.update(('enemy_difficulty', 'debuffs'))
+        self.recalculate(enrich=False)
 
     def correct_item(self,item,original=None):
         with self._mutex:
@@ -344,11 +483,26 @@ class Controller:
                     time.sleep(.5)
                     continue
                 if self.recognizer is None:
-                    self.recognizer=Recognizer(self.catalog,self.data)
+                    self.recognizer=Recognizer(self.catalog,self.profile)
                 observed,rows=self.recognizer.analyze(second)
                 with self._mutex:
+                    previous_state = self.tracker.state
+                    if observed.scene=='开局菜单' and previous_state.scene!='开局菜单' and (
+                        previous_state.round or previous_state.voyage or previous_state.spotlights
+                    ):
+                        self.new_game(keep_rank=True)
                     self.image=second
                     self.rows=rows
+                    selection=getattr(self,'selection',None)
+                    if selection is not None:
+                        if observed.scene=='光环选择' and observed.round is None:
+                            observed.round=self.tracker.state.round
+                        picked=selection.observe(observed,rows,second.shape,self.capture.window.hwnd)
+                        if picked:
+                            if picked.kind=='环境':observed.environment=picked
+                            elif picked.kind=='主角光环' and picked.slot in (1, 2):
+                                observed.spotlights.setdefault(picked.slot,picked)
+                            elif picked.kind=='策略':observed.strategies.append(picked)
                     self.tracker.merge(observed)
                 duration=time.monotonic()-started
                 self.times.append(duration)

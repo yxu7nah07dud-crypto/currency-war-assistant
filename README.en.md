@@ -1,18 +1,25 @@
-# Currency War Assistant
-
-Investment environment and strategy screens show a preferred option and comparisons of effects, lineup relevance and trigger conditions. Without a locked guide or confirmed lineup, only general resource rules are used. A locked guide supplies its author's preferences. Incomplete recognition is marked provisional; add missing offered cards in **Recognized**. Refreshing or leaving the page clears offered choices. Manually mark the card you actually picked as selected.
+# Currency War Assistant v2.0.0
 
 Languages: [中文](README.md) · **English** · [日本語](README.ja.md)
 
-An unofficial Windows 10/11 desktop companion for the Currency War mode in *Honkai: Star Rail*. It observes the game window locally, recognizes visible roles, shop cards, equipment and economy values, then explains public guide-code matches and the next recommended action.
+An unofficial Windows 10/11 companion for Standard Gambit in Currency Wars: Voyage Into the Canvas, game version 4.7, season 2, sub-season 1. Window recognition targets the Simplified Chinese client. The interface and authored advice support Chinese, English and Japanese. Choose **Update guides** on first launch.
 
-## Guide lookup and cache coverage (v1.0.3)
+## What's in 2.0
+
+- **Escapade and Plot Armor.** Read the partner and effect when shown. Before a boss, compare the armor against deployed employees and its difficulty cost. Use **Difficulty / investment → Escapade / Plot Armor** to correct the actual effect and recipient.
+- **Rank and opponent.** Enter a rank and tier such as `A8·12`. Enemy difficulty is separate. Enter affixes in game order to show 4.7 rule effects and responses. Run records clear with **New game**.
+- **Guides and economy.** Matching uses confirmed owned roles, selected investments, equipment and current shop weights. Guide-code locks validate the game version, season and sub-season.
+- **Upgrade.** Copy `CurrencyWarAssistantData/settings.json` to carry over appearance settings. The season's cache, recognition calibration and manual rank use `CurrencyWarAssistantData/season-2-1-v4.7`. See [verification scope](REVIEW-CHECKLIST.md).
+
+The [official season overview](https://www.miyoushe.com/dby/article/79258376) and [pinned 4.7 data snapshot](https://github.com/DimbreathBot/TurnBasedGameData/commit/2c8a218502ebfccaf6e01675b0bdf6948d723bbb) underpin the rules. `tools/build_season_rules.py` reproduces the numerical extraction from a local snapshot.
+
+## Guide lookup and cache coverage
 
 Paste a raw code or the complete game share text, then choose **Apply & lock**. A missing cached code triggers online pagination and an exact check against official guide details. **Read clipboard** retains the title so trait filters can speed up lookup. A guide locks as soon as found; full sync can continue in the background. Unlocking or starting a new game cancels a pending lookup.
 
 **Update guides** follows every available page of both Hot and Latest public recommendations for ordinary mode and deduplicates their results. Earlier versions only read the first three pages of each order (about 60 guides). The footer now reports pages, cached guides, entries with codes, and sync status. Interrupted sync retains results and resumes at the saved page. A first sync can take several minutes.
 
-“Public recommendation snapshot read to the end” appears only after both lists end. This covers this snapshot of the ordinary-mode public API, not every historical, private, deleted, or game-context-specific guide. Cached information may be incomplete or outdated. If a code is missing, retry the complete share text with its title. Expired guides cannot be locked; older guides still require checking current roles, equipment and author prerequisites. Lookup status remains visible independently of observation messages.
+“Public recommendation snapshot read to the end” appears only after both lists end. This covers this snapshot of the ordinary-mode public API, not every historical, private, deleted, or game-context-specific guide. Cached information may be incomplete or outdated. If a code is missing, retry the complete share text with its title. Locking requires an active guide for the same season and sub-season. Lookup status remains visible independently of observation messages.
 
 ## Use
 
@@ -28,13 +35,13 @@ The interface supports Chinese, English and Japanese. Settings are saved when th
 
 ## Updating and capture errors
 
-Keep `CurrencyWarAssistant.exe` beside the complete `_internal` directory. Version 1.0.2 explicitly bundles the native capture component and checks real capture in the packaged application. If an older version reports `No module named 'windows_capture.windows_capture'`, close it and extract the complete new release into a new folder. Replacing only the executable is insufficient. Move your previous `CurrencyWarAssistantData` folder into the new folder to keep settings and cache. Borderless display cannot repair missing components.
+Keep `CurrencyWarAssistant.exe` beside the complete `_internal` directory. Version 1.0.2 explicitly bundles the native capture component and checks real capture in the packaged application. If an older version reports `No module named 'windows_capture.windows_capture'`, close it and extract the complete new release into a new folder. Replacing only the executable is insufficient. Copy the previous `CurrencyWarAssistantData/settings.json` to retain appearance settings. Borderless display cannot repair missing components.
 
 The assistant's borderless setting and the game's display mode are independent. If the captured game image is black, try the game's windowed or borderless display mode. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Public-source policy
 
-The public source package intentionally contains no game artwork, wiki database, guide cache or copied guide text. The first refresh obtains current public configuration and guide metadata into the user's local `CurrencyWarAssistantData/cache` directory. Do not commit that directory.
+The public source package intentionally contains no game artwork, wiki database, guide cache or copied guide text. The first refresh obtains current public configuration and guide metadata into the user's local `CurrencyWarAssistantData/season-2-1-v4.7/cache` directory. Do not commit that directory.
 
 This is an unofficial fan tool and is not affiliated with miHoYo, HoYoverse, HoYoLAB or *Honkai: Star Rail*. Game names, artwork, data and guide content belong to their respective rights holders. See [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE).
 
@@ -56,7 +63,9 @@ The release check runs the packaged executable and captures only its own synthet
 
 For the complete Chinese usage guide, see [README.md](README.md).
 
-The public build includes no icon templates. OCR reads shop card titles; front/back/bench roles and inventory equipment require manual recognition correction or locally learned icons. Earlier portrait/star checks used private or learned templates and do not establish recognition capability in a fresh public build.
+No game icons are bundled. After obtaining configuration, role portraits from its official URLs are cached locally in `official_portraits` for bench-slot and front/back image matching. Screenshots are not uploaded. OCR reads shop titles; obscured or ambiguous forms, stars and inventory equipment still need correction or local learning. Earlier private-template checks do not validate every current position, skin or resolution.
+
+Guide ranking uses confirmed owned roles, stage/final lineups, the selected environment, author preferences and explicitly described trait refresh benefits. Recommended environments are optional; explicit mandatory prerequisites remain separate. Insufficient evidence is labeled Reference and cannot automatically drive purchases. The guide list shows the actual environment and owned-role basis.
 
 Use tools/prepare_capture_wheel.py --install before installing requirements. It creates windows-capture 2.0.1+cwa.headless1 from the official wheel, changing only its dependency metadata and local distribution version. Python sources/native binaries and original notices are retained. One headless OpenCV serves capture and OCR. The local version in the lock file must be generated with this script, not fetched from PyPI.
 

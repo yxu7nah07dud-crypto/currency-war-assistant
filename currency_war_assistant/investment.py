@@ -138,3 +138,12 @@ def advice(catalog,state,match=None,locked=False,language="zh"):
         result.append((f"{index+1}. {choice.seen.name}",body))
     result.append((t('investment_after_heading'),t('investment_after')))
     return result
+
+
+def selected_context(catalog,state,language='zh'):
+    chosen=state.environment
+    if not chosen or chosen.zone!='已选':return []
+    effect=text(catalog.environments.get(chosen.id,{}).get('desc',''))
+    t=lambda key,**values:translate(language,key,**values)
+    return [(t('chosen_environment',name=chosen.name),
+             (effect or t('pending'))+'\n'+t('selected_environment_note'))]

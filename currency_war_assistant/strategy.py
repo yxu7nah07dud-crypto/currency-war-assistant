@@ -9,6 +9,8 @@ import re
 from .localization import translate,enum_label
 from .models import Catalog, GameState, normalize
 from .economy import RESERVE_GOLD,REFRESH_COST,TARGET_LEVEL_BY_COST,estimated_interest
+from .season import current_guide
+from .season_data import LEVELS
 
 
 def clean(text):
@@ -104,7 +106,20 @@ def _ids(items):
     return {str(x.get("id", "")) if isinstance(x, dict) else str(x) for x in items}
 
 
+def environment_bonds(catalog,state):
+    selected=state.environment
+    if not selected or selected.zone!='已选' or selected.confidence<.8:return set()
+    effect=clean(catalog.environments.get(selected.id,{}).get('desc',''))
+    if not re.search(r'角色.{0,6}(?:刷新|出现)概率提高',effect):return set()
+    names={normalize(v) for v in re.findall(r'【([^】]+)】',effect)}
+    return {str(trait['id']) for role in catalog.roles.values() for trait in role.get('trait_details',[])
+            if normalize(trait.get('name','')) in names}
+
+
 def target_level(guide, catalog):
+    cost = max((catalog.cost(r) for r in core_ids(guide)), default=1)
+    if catalog.season and cost not in range(1,6):
+        return None, "特殊来源"
     labels = guide.get("tourn_detail", {}).get("labels", [])
     text = " ".join(str(x) for x in labels) + " " + guide.get("title", "")
     match = re.search(r"([4-9]|10)级搜", text)
@@ -113,7 +128,9 @@ def target_level(guide, catalog):
     match = re.search(r"速升\s*([4-9]|10)", text)
     if match:
         return int(match.group(1)), "升级"
-    cost = max((catalog.cost(r) for r in core_ids(guide)), default=1)
+    if catalog.season:
+        level = max((i for i in LEVELS if i>=5), key=lambda i: LEVELS[i][2][cost-1])
+        return level, "搜牌" if cost <=3 else "升级"
     return (TARGET_LEVEL_BY_COST.get(cost,9), "搜牌" if cost <=3 else "升级")
 
 
@@ -125,6 +142,9 @@ class Match:
     missing: list[str] = field(default_factory=list)
     cautions: list[str] = field(default_factory=list)
     blocked: bool = False
+    provisional: bool = False
+    environment_fit: int = 0
+    rank_score: float = 0.0
 
 
 class Adviser:
@@ -135,10 +155,22 @@ class Adviser:
     def t(self,key,**values):
         return translate(self.language,key,**values)
 
+    def _with_encounter_analysis(self, state, result):
+        from .encounter import advice
+        from .investment import selected_context
+        analysis = advice(self.catalog, state, self.language)
+        from .season_play import advice as season_advice
+        seasonal = season_advice(self.catalog,state,set(),self.language) if self.catalog.season else []
+        if state.scene in ('投资选择','光环选择'):
+            return result + analysis + seasonal
+        return selected_context(self.catalog,state,self.language) + seasonal + analysis + result
+
     def match(self, guide, state: GameState):
         catalog = self.catalog
         t = self.t
         detail = guide.get("tourn_detail", {})
+        if catalog.season and (not current_guide(guide,catalog.season) or state.mode=="超频博弈"):
+            return None
         if guide.get("is_deleted") or detail.get("is_expired") or detail.get("is_sub_expired"):
             return None
         final = role_ids(guide)
@@ -173,7 +205,7 @@ class Adviser:
         gear_score = 30 * compatible / max(1, len(wanted_gear))
         level, _ = target_level(guide, catalog)
         economy = 0
-        if state.level is not None:
+        if state.level is not None and level is not None:
             economy += max(0, 12 - abs(level-state.level)*2)
         if state.gold is not None:
             missing_cost = sum(catalog.cost(r) for r in current - owned)
@@ -181,10 +213,16 @@ class Adviser:
         augments = _ids(detail.get("first_fight_augments", [])) | _ids(detail.get("second_fight_augments", []))
         environments = _ids(detail.get("portals", []))
         context = (5 if any(s.id in augments and s.zone == "已选" for s in state.strategies) else 0)
-        context += 5 if state.environment and state.environment.zone == "已选" and state.environment.id in environments else 0
+        selected=state.environment if state.environment and state.environment.zone=='已选' and state.environment.confidence>=.8 else None
+        benefited=environment_bonds(catalog,state)
+        benefiting_roles={r for r in final|current if catalog.role_bonds(r)&benefited}
+        environment_fit=(3 if selected and selected.id in environments else
+                         2 if benefiting_roles&core or len(benefiting_roles)>=2 else 1 if benefiting_roles else 0)
+        context+={3:18,2:14,1:9,0:-10 if benefited else 0}[environment_fit]
         version = detail.get("rpg_game_big_version", "未知")
         freshness = 5 if version == catalog.version else 2
-        score = role_score + gear_score + economy + context + freshness
+        final_overlap=owned&final
+        score = role_score + 8*len(final_overlap)/max(1,len(final)) + gear_score + economy + context + freshness
         shop = {r.id for r in state.shop if r.confidence >= .8}
         if state.gold is not None:
             score += min(3, sum(1 for r in shop & (current-owned) if catalog.cost(r) <= state.gold))
@@ -192,11 +230,22 @@ class Adviser:
         missing = [catalog.name(r,"角色") for r in sorted((core | required)-owned)]
         missing += [t('missing_context',name=catalog.name(i,kind),kind=enum_label(self.language,kind)) for kind,i in sorted(missing_context)]
         cautions = []
+        if selected:
+            if environment_fit==3:
+                reasons.append(t('environment_author_match',name=selected.name))
+            elif environment_fit:
+                reasons.append(t('environment_trait_match',name=selected.name,
+                                 roles='、'.join(catalog.name(r,'角色') for r in sorted(benefiting_roles))))
+            elif benefited:
+                cautions.append(t('environment_no_match',name=selected.name))
+            if environments and selected.id not in environments:
+                cautions.append(t('environment_not_listed',name=selected.name))
         blocked = bool(required-owned or missing_context)
         if blocked:
             score = min(25, score-20)
             conditions=[catalog.name(r,"角色") for r in required-owned]+[t('missing_context',name=catalog.name(i,kind),kind=enum_label(self.language,kind)) for kind,i in missing_context]
             cautions.append(t('prerequisites_missing',conditions='、'.join(conditions)))
+        rank_score=score
         if not owned:
             score = min(score, 10)
             cautions.append(t('owned_unknown'))
@@ -205,6 +254,8 @@ class Adviser:
             cautions.append(t('transition_high'))
         if overlap:
             reasons.append(t('stage_owned',names='、'.join(catalog.name(r,'角色') for r in sorted(overlap))))
+        if final_overlap-overlap:
+            reasons.append(t('final_owned',names='、'.join(catalog.name(r,'角色') for r in sorted(final_overlap-overlap))))
         if compatible:
             reasons.append(t('gear_compatible',count=(compatible)))
         if shop & (current-owned):
@@ -215,11 +266,19 @@ class Adviser:
             cautions.append(t('old_version',version=(version)))
         if not reasons:
             reasons.append(t('candidate_confirm'))
-        return Match(guide, max(0, min(100, score)), reasons, missing, cautions, blocked)
+        provisional=not owned or not owned&(final|current) or bool(benefited and environment_fit<2)
+        return Match(guide, max(0, min(100, score)), reasons, missing, cautions, blocked,
+                     provisional,environment_fit,rank_score)
 
     def rank(self, guides, state, locked_id=""):
         matched = [m for g in guides if (m := self.match(g, state)) is not None]
-        matched.sort(key=lambda m: (not m.blocked, m.score, len(state.owned_ids() & role_ids(m.guide))), reverse=True)
+        owned=state.owned_ids()
+        matched.sort(key=lambda m: (not m.blocked,not m.provisional,
+                                   m.environment_fit if self.catalog.season else 0,
+                                   len(owned & core_ids(m.guide)) if self.catalog.season else 0,
+                                   m.environment_fit if not owned else 0,
+                                   m.rank_score,m.environment_fit,
+                                   len(owned & role_ids(m.guide))), reverse=True)
         if locked_id:
             locked = next((m for m in matched if m.guide["id"] == locked_id), None)
             if locked:
@@ -230,15 +289,29 @@ class Adviser:
     def advice(self, state, match: Match | None, locked=False):
         c = self.catalog
         t = self.t
+        if match and match.provisional and not locked:match=None
+        if c.season and state.mode=="超频博弈":
+            return [(t('current_heading'),t('standard_only'))]
+        if c.season and state.scene=="光环选择":
+            from .encounter import advice as encounter_advice
+            from .season_play import advice as season_advice
+            return season_advice(c,state,core_ids(match.guide) if match and not match.blocked else set(),
+                                 self.language) + encounter_advice(c,state,self.language)
+        if c.season and state.scene in ("奇遇","光环详情"):
+            return self._with_encounter_analysis(state, [])
+        if state.scene == '敌人情报':
+            return self._with_encounter_analysis(state, [(t('current_heading'), t('enc_preflight'))])
         if state.scene == "战斗":
-            return [(t('current_heading'), t('battle_advice'))]
+            return self._with_encounter_analysis(state, [(t('current_heading'), t('battle_advice'))])
         if state.scene == "投资选择":
             from .investment import advice
-            return advice(c,state,match,locked,self.language)
+            return self._with_encounter_analysis(state, advice(c,state,match,locked,self.language))
         if state.scene in ("未观察", "其他"):
-            return [(t('current_heading'), t('open_shop_advice'))]
-        if not match or not state.owned_ids():
-            return [(t('confirm_heading'), t('confirm_owned_advice'))]
+            return self._with_encounter_analysis(state, [(t('current_heading'), t('open_shop_advice'))])
+        if not state.owned_ids():
+            return self._with_encounter_analysis(state, [(t('confirm_heading'), t('confirm_owned_advice'))])
+        if not match:
+            return self._with_encounter_analysis(state, [(t('current_heading'), t('guide_no_recommendation'))])
         g = match.guide
         current, final = role_ids(g, state.stage()), role_ids(g)
         core, owned = core_ids(g), state.owned_ids()
@@ -293,20 +366,36 @@ class Adviser:
         else:
             result.append((t('equipment'), t('gear_incomplete')))
         target, operation = target_level(g,c)
+        refresh = REFRESH_COST
+        if c.season:
+            from .encounter import active_affix_ids
+            if 4039 in active_affix_ids(state.debuffs, True) and (state.level is None or state.level < 9):
+                refresh = "2–3"
         if match.blocked:
             result.append((t('economy_heading'), t('economy_blocked')))
+        elif target is None:
+            key = 'aha_core' if c.season and '151132' in core else 'special_core'
+            result.append((t('economy_heading'),t(key)))
         elif state.gold is None or state.level is None:
             result.append((t('economy_heading'), t('economy_unknown',target=(target),operation=(enum_label(self.language,operation)))))
         elif state.hp is not None and state.hp <=25:
             result.append((t('economy_heading'), t('economy_low_hp')))
         elif state.level < target:
-            result.append((t('economy_heading'), t('economy_level',target=(target),operation=(enum_label(self.language,operation)),refresh=(REFRESH_COST))))
+            result.append((t('economy_heading'), t('economy_level',target=(target),operation=(enum_label(self.language,operation)),refresh=refresh)))
         elif operation == "搜牌" and any(counts[r] <9 for r in core if c.cost(r)<=3):
             budget = max(0, state.gold-RESERVE_GOLD)
             result.append((t('economy_heading'), t('economy_search',reserve=(RESERVE_GOLD),budget=(budget))))
         else:
-            result.append((t('economy_heading'), t('economy_reached',target=(target),gold=(state.gold),interest=(estimated_interest(state.gold)),refresh=(REFRESH_COST))))
+            result.append((t('economy_heading'), t('economy_reached',target=(target),gold=(state.gold),interest=(estimated_interest(state.gold)),refresh=refresh)))
+        if c.season and state.level in LEVELS:
+            xp, capacity, weights = LEVELS[state.level]
+            result.append((t('shop_table'),t('shop_snapshot',capacity=capacity,
+                weights=' / '.join(f'{v}%' for v in weights), xp=xp if xp is not None else '—')))
         next_ids = sorted((current-owned) or (final-owned), key=lambda r:(r not in core,c.cost(r)))[:4]
         if next_ids:
             result.append((t('next_heading'), t('next_targets',names='、'.join(c.name(r,'角色') for r in next_ids))))
-        return [(title,t('general_estimate',body=body) if title==t('economy_heading') else body) for title,body in result]
+        return self._with_encounter_analysis(
+            state,
+            [(title,t('general_estimate',body=body) if title==t('economy_heading') else body)
+             for title,body in result],
+        )

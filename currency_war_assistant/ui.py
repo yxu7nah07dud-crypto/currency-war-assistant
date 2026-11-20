@@ -59,6 +59,9 @@ class Assistant:
         self.collapsed=False
         self._geometry=""
         self._render_signature=None
+        self._advice_context=None
+        self._advice_choices={}
+        self._advice_signature=None
         self._tree_signature=None
         self._selected_key=None
         self._preview_windows=[]
@@ -121,6 +124,9 @@ class Assistant:
         for child in list(self.root.winfo_children()):
             child.destroy()
         self._render_signature=None
+        self._advice_context=None
+        self._advice_choices={}
+        self._advice_signature=None
         self._tree_signature=None
         self._preview_windows=[]
         self.metric_vars={}
@@ -223,6 +229,8 @@ class Assistant:
         correction_label={"zh":"识别纠正","en":"Correct recognition","ja":"認識修正"}[self.language]
         self.correction_button=ttk.Button(controls,text=correction_label,command=self.correct)
         self.correction_button.pack(side="left",padx=(6,0))
+        self.context_button=ttk.Button(controls,text=self.t('context_button'),command=self.correct_context)
+        self.context_button.pack(side='left',padx=(5,0))
         self._build_guide_code_bar()
         self.network=tk.StringVar(value=self.t("cache_loading"))
         tk.Label(self.body,textvariable=self.network,bg=BG,fg=MUTED,anchor="w",font=("Microsoft YaHei UI",9),wraplength=900).pack(side="bottom",fill="x",padx=8,pady=(0,7))
@@ -359,24 +367,57 @@ class Assistant:
     def render(self,result):
         state=result["state"]
         show=lambda v:self.t("pending") if v is None else str(v)
-        self.brief.set(f"{state.difficulty} · {state.round or self.t('stage')+self.t('pending')}\n{self.t('gold')} {show(state.gold)} · {self.t('level')} {show(state.level)} · {self.t('hp')} {show(state.hp)}")
+        encounter = self.t("enemy_difficulty_brief", value=show(state.enemy_difficulty))
+        if state.debuffs:
+            encounter += " · " + self.t("enc_debuff_count", count=len(state.debuffs))
+        from .season import PENDING_RANK
+        rank = self.t('rank_pending') if state.difficulty==PENDING_RANK else state.difficulty
+        difficulty=rank+(' · '+enum_label(self.language,'手动') if 'difficulty' in state.manual_fields else '')
+        environment=state.environment.name if state.environment and state.environment.zone=='已选' else self.t('pending')
+        self.brief.set(f"{difficulty} · {state.round or self.t('stage')+self.t('pending')}\n{self.t('gold')} {show(state.gold)} · {self.t('level')} {show(state.level)} · {self.t('hp')} {show(state.hp)} · {encounter}\n{self.t('chosen_environment',name=environment)}")
         self.metric_vars["stage"].set({"Early":self.t("early"),"Middle":self.t("middle"),"Final":self.t("final")}.get(state.stage(),self.t("pending")))
         self.metric_vars["gold"].set(show(state.gold));self.metric_vars["level"].set(show(state.level));self.metric_vars["hp"].set(show(state.hp))
         self.metric_vars["locked"].set(self.controller.locked_title or self.t("unlocked"))
         self.metric_vars["opacity"].set(f"{int(self.opacity.get()*100)}%")
         self.locked_summary.set(self.controller.locked_title or self.t("unlocked"))
-        text=self.advice_text;position=text.yview()[0];text.configure(state="normal");text.delete("1.0","end")
-        for title,body in result["advice"]:
-            text.insert("end",title+"\n","heading");text.insert("end",body+"\n\n")
-        if any(r.source!="手动" and time.time()-r.at>15 for r in state.roles):
-            text.insert("end",self.t("hidden_record"))
-        text.configure(state="disabled");text.yview_moveto(position)
-        signature=tuple((m.guide["id"],round(m.score,1),tuple(m.reasons),tuple(m.cautions),self.controller.locked) for m in result["matches"])
+        self._render_advice(state,result["advice"])
+        signature=(tuple(sorted(state.owned_ids())),state.environment.id if state.environment else None,
+                   tuple((m.guide["id"],round(m.score,1),m.provisional,tuple(m.reasons),tuple(m.cautions),self.controller.locked) for m in result["matches"]))
         if signature!=self._render_signature:
-            self.render_guides(result["matches"]);self._render_signature=signature
+            self.render_guides(result["matches"],state);self._render_signature=signature
         self._render_entries(state)
         self.warning.set(state.warning or self.t("warning_pending",count=len(state.unresolved)))
         self.update_network()
+
+    def _render_advice(self,state,advice):
+        investment=state.scene in ("投资选择","光环选择")
+        context=(state.scene,state.round,self.controller.locked,
+                 state.investment_kind if investment else "",
+                 state.environment.id if state.environment and state.environment.zone=='已选' else None)
+        changed=context!=self._advice_context
+        if changed:self._advice_choices={}
+        choices={(item.kind,item.slot):(item.id,item.equipped_to)
+                 for item in state.investment_choices+state.spotlight_choices} if investment else {}
+        # Missing OCR rows alone must not pull the reader back to the top.
+        changed=changed or any(self._advice_choices.get(key)!=value for key,value in choices.items())
+        self._advice_choices.update(choices)
+        self._advice_context=context
+        if investment and changed:
+            self.notebook.select(self.advice_tab)
+        hidden=any(r.source!="手动" and time.time()-r.at>15 for r in state.roles)
+        signature=(tuple(advice),hidden)
+        text=self.advice_text
+        position=0.0 if changed else text.yview()[0]
+        if signature!=self._advice_signature:
+            text.configure(state="normal");text.delete("1.0","end")
+            for title,body in advice:
+                text.insert("end",title+"\n","heading");text.insert("end",body+"\n\n")
+            if hidden:text.insert("end",self.t("hidden_record"))
+            text.configure(state="disabled")
+            self._advice_signature=signature
+            text.yview_moveto(position)
+        elif changed:
+            text.yview_moveto(0.0)
 
     @staticmethod
     def entry_key(item):
@@ -389,6 +430,7 @@ class Assistant:
 
     def _render_entries(self,state):
         entries=state.roles+state.shop+state.equipment+state.strategies+state.investment_choices+([state.environment] if state.environment else [])
+        entries+=([state.voyage] if state.voyage else [])+state.spotlight_choices+list(state.spotlights.values())
         for pending in state.unresolved:
             identifier=(pending.get("ids") or [""])[0]
             name=" / ".join(self.controller.catalog.name(i,pending["kind"]) for i in pending.get("ids",[]))
@@ -408,15 +450,22 @@ class Assistant:
         self.tree.yview_moveto(position)
         self._tree_signature=signature
 
-    def render_guides(self,matches):
+    def render_guides(self,matches,state=None):
         for widget in self.cards.winfo_children():widget.destroy()
+        if state is not None:
+            owned=state.owned_ids()
+            environment=state.environment.name if state.environment and state.environment.zone=='已选' else self.t('pending')
+            summary=self.t('guide_basis',environment=environment,roles='、'.join(self.controller.catalog.name(r,'角色') for r in sorted(owned)) or self.t('pending'))
+            if not owned:summary+='\n'+self.t('guide_owned_missing')
+            elif matches and all(m.provisional or m.blocked for m in matches):summary+='\n'+self.t('guide_no_recommendation')
+            tk.Label(self.cards,text=summary,bg=BG,fg=GOLD,wraplength=850,anchor='w',justify='left').pack(fill='x',padx=10,pady=7)
         if not matches:
             tk.Label(self.cards,text=self.t("waiting_guides"),bg=BG,fg=MUTED,wraplength=350,pady=20).pack(fill="x")
         for index,match in enumerate(matches):
             guide=match.guide;detail=guide.get("tourn_detail",{})
             card=tk.Frame(self.cards,bg=PANEL,padx=12,pady=10);card.pack(fill="x",padx=3,pady=5)
             locked=guide["id"]==self.controller.locked
-            label=self.t("locked_label") if locked else self.t("main_pick") if index==0 else self.t("alternative",index=index)
+            label=self.t("locked_label") if locked else self.t('guide_reference') if match.provisional or match.blocked else self.t("main_pick") if index==0 else self.t("alternative",index=index)
             if match.blocked:label+=self.t("blocked")
             tk.Label(card,text=f"{label}  ·  {self.t('fit',score=match.score)}",bg=PANEL,fg=GOLD if match.blocked else ACCENT,anchor="w",font=("Microsoft YaHei UI",11,"bold")).pack(fill="x")
             tk.Label(card,text=guide.get("title","无标题"),bg=PANEL,fg=INK,wraplength=340,justify="left",anchor="w",font=("Microsoft YaHei UI",11,"bold")).pack(fill="x",pady=5)
@@ -537,7 +586,8 @@ class Assistant:
             try:
                 self.controller.save_numbers({key:var.get() for key,var in fields.items()})
             except ValueError as error:messagebox.showerror(self.t("confirm"),str(error),parent=window)
-        ttk.Button(frame,text=self.t("save_numbers"),command=save_numbers).grid(row=0,column=2,rowspan=4,padx=8)
+        ttk.Button(frame,text=self.t("save_numbers"),command=save_numbers).grid(row=0,column=2,rowspan=2,padx=8)
+        ttk.Button(frame,text=self.t("enc_button"),command=self.correct_encounter).grid(row=2,column=2,rowspan=2,padx=8)
         selection=tk.Frame(window,bg=BG);selection.pack(fill="x",padx=12,pady=12)
         kind=tk.StringVar(value="角色");name=tk.StringVar();zone=tk.StringVar(value="备战");star=tk.StringVar(value="待确认");copies=tk.StringVar(value="1")
         self.enum_box(selection,kind,["角色","装备","策略","环境"],state="readonly",width=10).grid(row=0,column=0,padx=(0,6))
@@ -561,6 +611,10 @@ class Assistant:
         self._remember_selection()
         original=None
         original=next((e for e in getattr(self,"entries",[]) if self.entry_key(e)==self._selected_key),None)
+        if original and original.kind in ("奇遇","主角光环"):
+            window.destroy()
+            self.correct_season()
+            return
         if original:
             kind.set(original.kind)
             update_options()
@@ -605,6 +659,148 @@ class Assistant:
         ttk.Button(buttons,text=self.t("done"),command=window.destroy).pack(side="right")
         refresh_list()
 
+    def correct_context(self):
+        state=self.controller.get_state()
+        window=self.dialog(self.t('context_button'),'620x560')
+        x=max(10,min(self.root.winfo_rootx()+(self.root.winfo_width()-620)//2,self.root.winfo_screenwidth()-640))
+        y=max(10,min(self.root.winfo_rooty()+25,self.root.winfo_screenheight()-610))
+        window.geometry(f'620x560+{x}+{y}')
+        tk.Label(window,text=self.t('rank_note'),bg=BG,fg=MUTED,wraplength=580,
+                 justify='left').pack(fill='x',padx=14,pady=12)
+        row=tk.Frame(window,bg=BG);row.pack(fill='x',padx=14)
+        tk.Label(row,text=self.t('rank_label'),bg=BG,fg=INK).pack(side='left')
+        self.difficulty_input=tk.StringVar(value=state.difficulty if state.difficulty.startswith('A') else '')
+        ttk.Entry(row,textvariable=self.difficulty_input,width=9).pack(side='left',padx=10)
+        def save(value=None):
+            try:self.controller.save_difficulty(self.difficulty_input.get() if value is None else value)
+            except ValueError as error:
+                messagebox.showerror(self.t('confirm'),str(error),parent=window);return
+            window.destroy()
+        self.difficulty_save_button=ttk.Button(row,text=self.t('save_numbers'),command=save)
+        self.difficulty_save_button.pack(side='left',padx=4)
+        ttk.Button(row,text=self.t('difficulty_auto'),command=lambda:save('')).pack(side='left',padx=4)
+        environment=state.environment.name if state.environment and state.environment.zone=='已选' else self.t('pending')
+        tk.Label(window,text=self.t('chosen_environment',name=environment),bg=BG,fg=ACCENT,
+                 wraplength=580,anchor='w').pack(fill='x',padx=14,pady=(20,5))
+        tk.Label(window,text=self.t('selection_note'),bg=BG,fg=MUTED,wraplength=580,
+                 justify='left').pack(fill='x',padx=14,pady=6)
+        choices=self.controller.investment_options()
+        self.investment_confirm_buttons=[]
+        for choice in sorted(choices,key=lambda item:item.slot):
+            def confirm(item=choice):
+                from copy import deepcopy
+                selected=deepcopy(item);selected.zone='已选';selected.source='手动';selected.confidence=1
+                self.controller.correct_item(selected);window.destroy()
+            button=ttk.Button(window,text=self.t('choose_actual',name=choice.name),command=confirm)
+            button.pack(fill='x',padx=14,pady=3)
+            self.investment_confirm_buttons.append(button)
+        all_options={item.get('name',identifier):identifier for identifier,item in self.controller.catalog.environments.items()}
+        manual_row=tk.Frame(window,bg=BG);manual_row.pack(fill='x',padx=14,pady=8)
+        self.environment_input=tk.StringVar(value='')
+        box=ttk.Combobox(manual_row,textvariable=self.environment_input,values=sorted(all_options),width=34)
+        box.pack(side='left',fill='x',expand=True,padx=(0,8))
+        def confirm_environment():
+            identifier=all_options.get(self.environment_input.get().strip())
+            if not identifier:
+                messagebox.showinfo(self.t('confirm'),self.t('invalid_name'),parent=window);return
+            self.controller.correct_item(Seen(identifier,self.controller.catalog.name(identifier,'环境'),'环境','已选',
+                                              confidence=1,source='手动'))
+            window.destroy()
+        ttk.Button(manual_row,text=self.t('confirm_environment'),command=confirm_environment).pack(side='right')
+        ttk.Button(window,text=self.t('season_button'),command=lambda: (window.destroy(),self.correct_season())).pack(anchor='w',padx=14,pady=6)
+        ttk.Button(window,text=self.t('close'),command=window.destroy).pack(side='bottom',anchor='e',padx=14,pady=8)
+
+    def correct_season(self):
+        from .season_data import PARTNERS
+        from .season_play import VOYAGE_LABELS
+
+        state=self.controller.get_state()
+        catalog=self.controller.catalog
+        window=self.dialog(self.t('season_button'),'690x420')
+        body=ttk.Frame(window,padding=14)
+        body.pack(fill='both',expand=True)
+
+        def combo(label, variable, values):
+            ttk.Label(body,text=label).pack(anchor='w',pady=(9,2))
+            box=ttk.Combobox(body,textvariable=variable,values=values,state='readonly')
+            box.pack(fill='x')
+            return box
+
+        partner=tk.StringVar(value=state.voyage.name if state.voyage else '')
+        options=combo(self.t('voyage_label'),partner,('',*PARTNERS))
+        effect=tk.StringVar()
+        variants=combo(self.t('voyage_variant'),effect,())
+
+        def update_partner(event=None):
+            entries=('',*(f'{i} · {VOYAGE_LABELS[i]}' for i in PARTNERS.get(partner.get(),()) if i in VOYAGE_LABELS))
+            variants.configure(values=entries)
+            saved=state.voyage.id if state.voyage and state.voyage.name==partner.get() else ''
+            effect.set(next((item for item in entries if saved and item.startswith(saved+' · ')),''))
+
+        options.bind('<<ComboboxSelected>>',update_partner)
+        update_partner()
+        ttk.Button(body,text=self.t('save_numbers'),command=lambda: (
+            self.controller.save_voyage(partner.get(),effect.get().split(' · ',1)[0]),window.destroy())).pack(anchor='e',pady=5)
+
+        plane=tk.StringVar(value=str(min(state.spotlights,default=1)))
+        plane_box=combo(self.t('spot_plane'),plane,('1','2'))
+        armor=tk.StringVar()
+        recipient=tk.StringVar()
+        effects={f"{item['name']} · {i}":i for i,item in catalog.spotlights.items()}
+        roles={f"{item['name']} · {i}":i for i,item in catalog.roles.items()}
+        combo(self.t('spot_effect'),armor,('',*sorted(effects)))
+        combo(self.t('spot_recipient'),recipient,('',*sorted(roles)))
+
+        def update_plane(event=None):
+            current=state.spotlights.get(int(plane.get()))
+            armor.set(next((key for key,i in effects.items() if current and current.id==i),''))
+            recipient.set(next((key for key,i in roles.items() if current and current.equipped_to==i),''))
+
+        def save_spotlight():
+            try:
+                self.controller.save_spotlight(int(plane.get()),effects.get(armor.get(),''),roles.get(recipient.get(),''))
+            except ValueError as error:
+                messagebox.showerror(self.t('confirm'),str(error),parent=window)
+                return
+            window.destroy()
+
+        plane_box.bind('<<ComboboxSelected>>',update_plane)
+        update_plane()
+        ttk.Button(body,text=self.t('save_numbers'),command=save_spotlight).pack(anchor='e',pady=5)
+
+    def correct_encounter(self):
+        state = self.controller.get_state()
+        window = self.dialog(self.t('enc_button'), '630x610')
+        tk.Label(window, text=self.t('enc_edit_note'), bg=BG, fg=MUTED,
+                 justify='left', wraplength=590).pack(fill='x', padx=12, pady=10)
+        row = tk.Frame(window, bg=BG); row.pack(fill='x', padx=12)
+        tk.Label(row, text=self.t('enc_enemy_label'), bg=BG, fg=INK).pack(side='left')
+        difficulty = tk.StringVar(value='' if state.enemy_difficulty is None else str(state.enemy_difficulty))
+        ttk.Entry(row, textvariable=difficulty, width=12).pack(side='left', padx=12)
+        tk.Label(window, text=self.t('enc_debuff_label'), bg=BG, fg=ACCENT,
+                 anchor='w').pack(fill='x', padx=12, pady=(10, 4))
+        names = tk.Text(window, height=7, bg=PANEL, fg=INK, insertbackground=INK)
+        names.pack(fill='x', padx=12); names.insert('1.0', '\n'.join(state.debuffs))
+        self.encounter_name_editor = names
+        status = tk.StringVar()
+        tk.Label(window, textvariable=status, bg=BG, fg=ACCENT, wraplength=590).pack(fill='x', padx=12, pady=4)
+        buttons = tk.Frame(window, bg=BG); buttons.pack(fill='x', padx=12, pady=4)
+        preview = self.text_panel(window)
+        def render_rules():
+            from .encounter import canonical_debuff, rule_description
+            values = [v.strip() for v in names.get('1.0', 'end').splitlines() if v.strip()]
+            self.set_text(preview, '\n\n'.join(canonical_debuff(v, True) + '\n' + rule_description(v, self.language, True) for v in values))
+        def save():
+            try:
+                self.controller.save_encounter(difficulty.get(), names.get('1.0', 'end'))
+            except ValueError as error:
+                status.set(str(error)); return
+            status.set(self.t('enc_saved')); render_rules()
+        self.encounter_save_button = ttk.Button(buttons, text=self.t('enc_save'), command=save)
+        self.encounter_save_button.pack(side='left')
+        ttk.Button(buttons, text=self.t('done'), command=window.destroy).pack(side='right')
+        render_rules()
+
     def preview(self):
         controller=self.controller
         if controller.image is None:
@@ -639,7 +835,7 @@ class Assistant:
             recognizer.regions[zone.get()]=[box[0]/w,box[1]/h,box[2]/w,box[3]/h]
             recognizer.calibrated.add(zone.get())
             recognizer.regions_calibrated=True
-            write_json(self.data / "regions.json",{"regions":recognizer.regions,"calibrated":sorted(recognizer.calibrated)})
+            write_json(recognizer.data / "regions.json",{"regions":recognizer.regions,"calibrated":sorted(recognizer.calibrated)})
             status.set(enum_label(self.language,zone.get())+" · "+self.t("save_region_status"))
         ttk.Button(row,text=self.t("save_region"),command=save_region).pack(side="left",padx=6)
         kind=tk.StringVar(value="角色");name=tk.StringVar()
@@ -679,8 +875,8 @@ class Assistant:
         self.network.set(self.t("network",version=self.controller.catalog.version,count=summary["count"],codes=summary["codes"],connection=self.t("online") if c.online else self.t("offline"),updated=at,coverage=coverage_text))
 
     def new_game(self):
-        self.controller.tracker.reset();self.controller.clear_guide_lock();self.guide_code.set("");self.controller._signature=None
-        self.controller.recalculate();self.status.set(self.t("new_game_done"))
+        self.controller.new_game();self.guide_code.set("")
+        self.status.set(self.t("new_game_done"))
 
     def export(self):
         target=self.data / ("diagnostic-"+time.strftime("%Y%m%d-%H%M%S")+".json")
